@@ -1,0 +1,113 @@
+"""ReconPilot - Main Application Entry Point.
+
+FastAPI application with lifecycle management, middleware, and route inclusion.
+"""
+
+import logging
+import sys
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, Depends, Request, Response
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import HTTPException
+
+from app.core.logging import setup_logging
+from app.core.config import get_settings
+from app.core.security import get_password_hash
+from app.db.models import User
+
+from app.api.deps import get_current_user, get_db
+from app.api.v1.recon import router as recon_router
+from app.api.v1.vuln import router as vuln_router
+
+# Custom exception for scope violations - returned as 403 Forbidden
+class ScopeViolation(Exception):
+    """Raised when a target is out of scope.
+
+    Caught globally in app/main.py and returned as 403 Forbidden.
+    Never a raw 500.
+    """
+    def __init__(self, detail: str):
+        self.detail = detail
+
+# Setup logging first
+setup_logging()
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan manager.
+
+    Startup: Initialize database, load configs.
+    Shutdown: Cleanup resources, close connections.
+    """
+    logger.info("Starting ReconPilot application...")
+    yield
+    logger.info("Shutting down ReconPilot application...")
+
+
+def create_app() -> FastAPI:
+    """Create and configure the FastAPI application."""
+    settings = get_settings()
+
+    app = FastAPI(
+        title="ReconPilot",
+        description="Automated security research and continuous attack-surface monitoring platform",
+        version="0.1.0",
+        docs_url="/docs" if settings.LOG_LEVEL != "disabled" else None,
+        redoc_url="/redoc" if settings.LOG_LEVEL != "disabled" else None,
+        lifespan=lifespan,
+    )
+
+    # Health check - must return {"status": "ok"}
+    @app.get("/health", tags=["system"])
+    async def health_check():
+        return {"status": "ok"}
+
+    # CORS middleware
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.BACKEND_CORS_ORIGINS,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    # Include API routes
+    from app.api.v1.auth import router as auth_router
+
+    app.include_router(auth_router, prefix="/api/v1/auth", tags=["auth"])
+
+    from app.api.v1.projects import router as projects_router
+
+    app.include_router(projects_router, prefix="/api/v1/projects", tags=["projects"])
+
+    from app.api.v1.engagements import router as engagements_router
+
+    app.include_router(engagements_router, prefix="/api/v1/engagements", tags=["engagements"])
+
+    from app.api.v1.authorization import router as authorization_router
+
+    app.include_router(authorization_router, prefix="/api/v1/engagements", tags=["authorization"])
+
+    app.include_router(recon_router, prefix="/api/v1/recon", tags=["recon"])
+
+    app.include_router(vuln_router, prefix="/api/v1/vuln", tags=["vulnerability"])
+
+    # Temporary me endpoint for auth testing
+    @app.get("/api/v1/me", tags=["auth"])
+    async def get_me(current_user: User = Depends(get_current_user)) -> dict:
+        return {"id": current_user.id, "email": current_user.email, "is_active": current_user.is_active}
+
+    # Global exception handler for ScopeViolation
+    @app.exception_handler(ScopeViolation)
+    async def scope_violation_handler(request: Request, exc: ScopeViolation):
+        """Handle ScopeViolation and return 403 Forbidden with detail message."""
+        return JSONResponse(
+            status_code=status.HTTP_403_FORBIDDEN,
+            content={"detail": exc.detail},
+        )
+
+    return app

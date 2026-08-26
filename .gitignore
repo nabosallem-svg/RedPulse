@@ -1,0 +1,13 @@
+﻿__pycache__/
+*.pyc
+*.pyo
+.env
+.pytest_cache/
+.venv/
+venv/
+*.log
+test_output.txt
+check_*.py
+fix_indent.py
+verify_done.py
+RUN.bat
