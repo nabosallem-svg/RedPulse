@@ -12,6 +12,7 @@ dependencies = [
     "pydantic-settings",
     "python-jose",
     "passlib[bcrypt]",
+    "bcrypt>=4.0,<4.1",
     "dnspython",
     "redis",
     "httpx",
