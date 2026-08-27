@@ -1,7 +1,11 @@
 ﻿import axios from "axios";
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL;
 const api = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000",
+  // Empty baseURL => same-origin requests (works on Vercel where the API
+  // function is served from /api on the same domain). Set NEXT_PUBLIC_API_URL
+  // (e.g. http://localhost:8000 in dev) to override.
+  baseURL: API_BASE && API_BASE.trim().length > 0 ? API_BASE : "",
   headers: { "Content-Type": "application/json" },
   withCredentials: false,
 });

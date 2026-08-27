@@ -44,6 +44,18 @@ async def lifespan(app: FastAPI):
     Shutdown: Cleanup resources, close connections.
     """
     logger.info("Starting RedPulse application...")
+    # Serverless-friendly bootstrap: create tables if they don't exist so the
+    # API works on platforms like Vercel without a separate migration step.
+    # Fails gracefully (logs a warning) if the database is unreachable.
+    try:
+        from app.db.base import Base
+        from app.db.session import engine
+
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        logger.info("Database schema verified/created.")
+    except Exception as exc:  # pragma: no cover - environment dependent
+        logger.warning("Startup schema bootstrap skipped: %s", exc)
     yield
     logger.info("Shutting down RedPulse application...")
 
