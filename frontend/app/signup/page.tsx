@@ -29,8 +29,13 @@ export default function SignupPage() {
     setError(null); setLoading(true);
     try {
       const res = await api.post("/api/v1/auth/signup", { email: data.email, password: data.password, full_name: data.full_name });
-      const { access_token } = res.data;
-      setAuthToken(access_token, { email: data.email, full_name: data.full_name });
+      const { access_token, refresh_token } = res.data;
+      let user = null;
+      try {
+        const me = await api.get("/api/v1/auth/me", { headers: { Authorization: `Bearer ${access_token}` } });
+        user = me.data;
+      } catch {}
+      setAuthToken(access_token, refresh_token, user ?? { email: data.email, full_name: data.full_name });
       router.push("/dashboard");
     } catch (e: any) {
       setError(e?.response?.data?.detail || "Signup failed");
@@ -45,22 +50,22 @@ export default function SignupPage() {
             <Shield className="h-6 w-6" />
           </div>
           <CardTitle>Create account</CardTitle>
-          <CardDescription>Join RedPulse â€” Targeted Scanning Only</CardDescription>
+          <CardDescription>Join RedPulse — Targeted Scanning Only</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div className="space-y-2">
               <Label>Email</Label>
-              <Input type="email" placeholder="you@company.com" {...register("email")} />
+              <Input type="email" placeholder="you@company.com" {...register("email")} disabled={loading} />
               {errors.email && <p className="text-xs text-red-400">{errors.email.message}</p>}
             </div>
             <div className="space-y-2">
               <Label>Full name (optional)</Label>
-              <Input placeholder="Ada Lovelace" {...register("full_name")} />
+              <Input placeholder="Ada Lovelace" {...register("full_name")} disabled={loading} />
             </div>
             <div className="space-y-2">
               <Label>Password</Label>
-              <Input type="password" placeholder="min 8 characters" {...register("password")} />
+              <Input type="password" placeholder="min 8 characters" {...register("password")} disabled={loading} />
               {errors.password && <p className="text-xs text-red-400">{errors.password.message}</p>}
             </div>
             {error && <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded p-2">{error}</p>}

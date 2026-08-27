@@ -10,7 +10,7 @@ export function Navbar() {
   const [email, setEmail] = useState<string | null>(null);
   useEffect(() => {
     try {
-      const raw = localStorage.getItem("RedPulse_user");
+      const raw = localStorage.getItem("rp_user");
       if (raw) setEmail(JSON.parse(raw)?.email ?? null);
     } catch {}
   }, []);

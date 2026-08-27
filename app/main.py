@@ -7,7 +7,7 @@ import logging
 import sys
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Depends, Request, Response
+from fastapi import FastAPI, Depends, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import HTTPException
@@ -78,23 +78,24 @@ def create_app() -> FastAPI:
     async def health_check():
         return {"status": "ok"}
 
-    # CORS - Next.js local & production (React/Next.js dashboard)
+    # CORS - explicit origins for production security
     default_origins = [
         "http://localhost:3000",
         "http://localhost:3001",
         "http://127.0.0.1:3000",
         "http://127.0.0.1:3001",
+        "https://redpulse-app.vercel.app",
+        "https://redpulse-frontend.vercel.app",
     ]
     configured = settings.BACKEND_CORS_ORIGINS or []
-    # Merge and dedupe, keep order
     origins = []
     for o in list(configured) + default_origins:
-        if o and o not in origins:
+        if o and o != "*" and o not in origins:
             origins.append(o)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=origins,
-        allow_origin_regex=r"https://.*\.vercel\.app",
+        allow_origin_regex=r"https://.*\.vercel\.app$",
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -129,6 +130,10 @@ def create_app() -> FastAPI:
     from app.api.v1.authorization import router as authorization_router
 
     app.include_router(authorization_router, prefix="/api/v1/engagements", tags=["authorization"])
+
+    from app.api.v1.scope import router as scope_router
+
+    app.include_router(scope_router, prefix="/api/v1/engagements", tags=["scope"])
 
     app.include_router(recon_router, prefix="/api/v1/recon", tags=["recon"])
 

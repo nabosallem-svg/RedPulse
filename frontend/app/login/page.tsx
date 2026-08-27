@@ -28,14 +28,13 @@ export default function LoginPage() {
     setError(null); setLoading(true);
     try {
       const res = await api.post("/api/v1/auth/login", { email: data.email, password: data.password });
-      const { access_token, token_type } = res.data;
-      // fetch user profile
+      const { access_token, refresh_token } = res.data;
       let user = null;
       try {
-        const me = await api.get("/api/v1/me", { headers: { Authorization: `Bearer ${access_token}` } });
+        const me = await api.get("/api/v1/auth/me", { headers: { Authorization: `Bearer ${access_token}` } });
         user = me.data;
       } catch {}
-      setAuthToken(access_token, user ?? { email: data.email });
+      setAuthToken(access_token, refresh_token, user ?? { email: data.email });
       router.push("/dashboard");
     } catch (e: any) {
       setError(e?.response?.data?.detail || "Login failed. Check credentials.");
@@ -50,18 +49,18 @@ export default function LoginPage() {
             <Shield className="h-6 w-6" />
           </div>
           <CardTitle className="text-2xl">Welcome back</CardTitle>
-          <CardDescription>Sign in to RedPulse â€” Controlled Pentesting</CardDescription>
+          <CardDescription>Sign in to RedPulse — Controlled Pentesting</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
-              <Input id="email" type="email" placeholder="you@company.com" {...register("email")} />
+              <Input id="email" type="email" placeholder="you@company.com" {...register("email")} disabled={loading} />
               {errors.email && <p className="text-xs text-red-400">{errors.email.message}</p>}
             </div>
             <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
-              <Input id="password" type="password" placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" {...register("password")} />
+              <Input id="password" type="password" placeholder="••••••••" {...register("password")} disabled={loading} />
               {errors.password && <p className="text-xs text-red-400">{errors.password.message}</p>}
             </div>
             {error && <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded p-2">{error}</p>}

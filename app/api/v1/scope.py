@@ -4,13 +4,11 @@ Handles manual scope rule addition and retrieval for engagements.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_db
-from app.db.models import Engagement, Project, ScopeRule, Authorization, User
-from app.schemas import ScopeRuleSchema, ProjectSchema
-from app.services import scope_validator
-from app.services.auth_service import create_authorization
+from app.db.models import Engagement, Project, ScopeRule, User
 
 
 router = APIRouter(tags=["scope"])
@@ -18,20 +16,15 @@ router = APIRouter(tags=["scope"])
 
 @router.post(
     "/engagements/{engagement_id}/scope",
-    response_model=ScopeRuleSchema,
     status_code=status.HTTP_201_CREATED,
 )
 async def add_scope_rule(
     engagement_id: str,
     rule_data: dict,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> ScopeRuleSchema:
+) -> dict:
     """Add a manual include/exclude scope rule for an engagement.
-
-    Only allowed for engagements with `dns_txt` method.
-    For `bug_bounty_program` engagements, scope is synced automatically
-    from the bug bounty platform - manual rules are supplementary only.
 
     Rule data format:
     {
@@ -39,11 +32,14 @@ async def add_scope_rule(
         "is_include": true/false,
     }
     """
-    # Get the engagement and verify ownership
-    engagement = db.query(Engagement).filter(
-        Engagement.id == engagement_id,
-        Engagement.project.has(Project.owner_id == current_user.id),
-    ).first()
+    # Verify engagement belongs to user's project
+    result = await db.execute(
+        select(Engagement).where(
+            Engagement.id == engagement_id,
+            Engagement.project.has(Project.owner_id == current_user.id),
+        )
+    )
+    engagement = result.scalar_one_or_none()
 
     if not engagement:
         raise HTTPException(
@@ -51,15 +47,6 @@ async def add_scope_rule(
             detail="Engagement not found",
         )
 
-    # Check authorization method
-    # For bug_bounty_program engagements, manual scope additions are supplementary
-    # and not authoritative - scope is automatically synced from the platform
-    if engagement.authorization_method == "bug_bounty_program":
-        # Still allow the rule but mark it as supplementary/user-added
-        # The authoritative scope comes from bounty_platform_synced rules
-        pass  # We allow it but it's supplementary
-
-    # Create the scope rule
     target = rule_data.get("target", "")
     is_include = rule_data.get("is_include", True)
 
@@ -70,11 +57,13 @@ async def add_scope_rule(
         )
 
     # Check if rule already exists
-    existing = db.query(ScopeRule).filter(
-        ScopeRule.engagement_id == engagement.id,
-        ScopeRule.target == target,
-        ScopeRule.is_include == is_include,
-    ).first()
+    result = await db.execute(
+        select(ScopeRule).where(
+            ScopeRule.engagement_id == engagement.id,
+            ScopeRule.pattern == target,
+        )
+    )
+    existing = result.scalar_one_or_none()
 
     if existing:
         raise HTTPException(
@@ -82,40 +71,48 @@ async def add_scope_rule(
             detail="Scope rule already exists",
         )
 
+    # Map frontend fields to DB model
+    from app.db.models import RuleType, RuleSource
+
     rule = ScopeRule(
         engagement_id=engagement.id,
-        target=target,
-        is_include=is_include,
-        source="manual",  # Could be "manual", "bounty_platform_synced", etc.
+        pattern=target,
+        rule_type=RuleType.INCLUDE if is_include else RuleType.EXCLUDE,
+        source=RuleSource.USER_DEFINED,
     )
 
     db.add(rule)
-    db.commit()
-    db.refresh(rule)
+    await db.commit()
+    await db.refresh(rule)
 
-    return rule
+    # Return in frontend-expected format
+    return {
+        "id": rule.id,
+        "engagement_id": rule.engagement_id,
+        "target": rule.pattern,
+        "is_include": rule.rule_type == RuleType.INCLUDE,
+        "source": rule.source.value if hasattr(rule.source, "value") else str(rule.source),
+        "created_at": rule.created_at.isoformat() if rule.created_at else None,
+    }
 
 
 @router.get(
     "/engagements/{engagement_id}/scope",
-    response_model=list[ScopeRuleSchema],
 )
-def list_scope_rules(
+async def list_scope_rules(
     engagement_id: str,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> list[ScopeRuleSchema]:
-    """List all scope rules for an engagement with their source.
-
-    Returns rules from all sources:
-    - manual: user-added include/exclude rules
-    - bounty_platform_synced: automatically synced from bug bounty programs
-    """
+) -> list[dict]:
+    """List all scope rules for an engagement."""
     # Verify engagement ownership
-    engagement = db.query(Engagement).filter(
-        Engagement.id == engagement_id,
-        Engagement.project.has(Project.owner_id == current_user.id),
-    ).first()
+    result = await db.execute(
+        select(Engagement).where(
+            Engagement.id == engagement_id,
+            Engagement.project.has(Project.owner_id == current_user.id),
+        )
+    )
+    engagement = result.scalar_one_or_none()
 
     if not engagement:
         raise HTTPException(
@@ -123,8 +120,21 @@ def list_scope_rules(
             detail="Engagement not found",
         )
 
-    rules = db.query(ScopeRule).filter(
-        ScopeRule.engagement_id == engagement.id
-    ).all()
+    result = await db.execute(
+        select(ScopeRule).where(ScopeRule.engagement_id == engagement.id)
+    )
+    rules = result.scalars().all()
 
-    return rules
+    from app.db.models import RuleType
+
+    return [
+        {
+            "id": r.id,
+            "engagement_id": r.engagement_id,
+            "target": r.pattern,
+            "is_include": r.rule_type == RuleType.INCLUDE,
+            "source": r.source.value if hasattr(r.source, "value") else str(r.source),
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        }
+        for r in rules
+    ]

@@ -4,24 +4,42 @@ import Link from "next/link";
 import api from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Shield, FolderKanban, Target, FileText, Activity, AlertTriangle } from "lucide-react";
+import { Shield, FolderKanban, Target, FileText, Activity, Loader2 } from "lucide-react";
 
 export default function DashboardPage() {
   const [stats, setStats] = useState({ projects: 0, engagements: 0, reports: 0 });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
   useEffect(() => {
     async function load() {
       try {
-        const [proj, eng] = await Promise.all([
-          api.get("/api/v1/projects/").then(r => r.data).catch(() => ({ data: [] })),
-          api.get("/api/v1/engagements/").then(r => r.data).catch(() => ({ data: [] })),
+        const [projRes, engRes] = await Promise.all([
+          api.get("/api/v1/projects/").catch(() => ({ data: { data: [] } })),
+          api.get("/api/v1/engagements/").catch(() => ({ data: { data: [] } })),
         ]);
+        const proj = projRes.data;
+        const eng = engRes.data;
         const pCount = Array.isArray(proj) ? proj.length : (proj?.data?.length ?? proj?.total ?? 0);
         const eCount = Array.isArray(eng) ? eng.length : (eng?.data?.length ?? eng?.total ?? 0);
         setStats({ projects: pCount, engagements: eCount, reports: 0 });
-      } catch {}
+      } catch (e: any) {
+        setError(e?.response?.data?.detail || "Failed to load dashboard");
+      } finally {
+        setLoading(false);
+      }
     }
     load();
   }, []);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="h-6 w-6 animate-spin text-[var(--primary)]" />
+        <span className="ml-2 text-sm text-[var(--muted-foreground)]">Loading dashboard...</span>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -29,6 +47,10 @@ export default function DashboardPage() {
         <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
         <p className="text-sm text-[var(--muted-foreground)]">Controlled Pentesting — all scans are targeted via scope_validator</p>
       </div>
+
+      {error && (
+        <div className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded p-3">{error}</div>
+      )}
 
       <div className="grid gap-4 md:grid-cols-3">
         <Card>
@@ -72,8 +94,8 @@ export default function DashboardPage() {
           <CardDescription>Passive PoC only • No destructive exploits • Scope enforced</CardDescription>
         </CardHeader>
         <CardContent className="flex items-center gap-4 text-sm">
-          <span className="flex items-center gap-2"><Activity className="h-4 w-4 text-green-400" /> API: {process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}</span>
-          <span className="flex items-center gap-2 text-amber-400"><AlertTriangle className="h-4 w-4" /> Controlled</span>
+          <span className="flex items-center gap-2"><Activity className="h-4 w-4 text-green-400" /> API Connected</span>
+          <span className="flex items-center gap-2 text-amber-400"><Shield className="h-4 w-4" /> Controlled</span>
         </CardContent>
       </Card>
     </div>

@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { FolderKanban, Plus, Search, ChevronLeft, ChevronRight } from "lucide-react";
+import { FolderKanban, Plus, Search, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 
 type Project = { id: string; name: string; description?: string; owner_id: string; created_at: string };
 
@@ -19,9 +19,11 @@ export default function ProjectsPage() {
   const [name, setName] = useState("");
   const [desc, setDesc] = useState("");
   const [loading, setLoading] = useState(false);
+  const [pageLoading, setPageLoading] = useState(true);
   const [msg, setMsg] = useState<string | null>(null);
 
   async function load(p = page) {
+    setPageLoading(true);
     try {
       const res = await api.get(`/api/v1/projects/?page=${p}&per_page=12`);
       const body = res.data;
@@ -29,7 +31,11 @@ export default function ProjectsPage() {
       const m = body?.meta ?? { page: p, per_page: 12, total: list.length, pages: 1 };
       setProjects(Array.isArray(list) ? list : []);
       setMeta(m);
-    } catch {}
+    } catch (e: any) {
+      setMsg(e?.response?.data?.detail || "Failed to load projects");
+    } finally {
+      setPageLoading(false);
+    }
   }
   useEffect(() => { load(page); }, [page]);
 
@@ -49,12 +55,21 @@ export default function ProjectsPage() {
     } finally { setLoading(false); }
   }
 
+  if (pageLoading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="h-6 w-6 animate-spin text-[var(--primary)]" />
+        <span className="ml-2 text-sm text-[var(--muted-foreground)]">Loading projects...</span>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold flex items-center gap-2"><FolderKanban className="h-5 w-5 text-[var(--primary)]" /> Projects</h1>
-          <p className="text-sm text-[var(--muted-foreground)]">Grid & Table • Paginated envelope <code className="text-xs bg-[var(--muted)] px-1 rounded">{"{success,data,meta}"}</code> • Tenant isolated</p>
+          <p className="text-sm text-[var(--muted-foreground)]">Tenant isolated • {meta.total} total</p>
         </div>
         <Button onClick={() => setShowModal(true)}><Plus className="h-4 w-4 mr-1" /> New Project</Button>
       </div>
@@ -64,11 +79,13 @@ export default function ProjectsPage() {
           <Search className="absolute left-3 top-2.5 h-4 w-4 text-[var(--muted-foreground)]" />
           <Input placeholder="Search projects..." className="pl-9" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
-        <div className="text-xs text-[var(--muted-foreground)] self-center">Total: {meta.total} • Page {meta.page}/{meta.pages}</div>
+        <div className="text-xs text-[var(--muted-foreground)] self-center">Page {meta.page}/{meta.pages}</div>
       </div>
 
+      {msg && <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded p-2">{msg}</p>}
+
       {filtered.length === 0 ? (
-        <Card><CardContent className="p-8 text-center text-sm text-[var(--muted-foreground)]">No projects. Create your first targeted scope.</CardContent></Card>
+        <Card><CardContent className="p-8 text-center text-sm text-[var(--muted-foreground)]">No projects yet. Create your first targeted scope.</CardContent></Card>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {filtered.map((p) => (
@@ -79,7 +96,7 @@ export default function ProjectsPage() {
                   <p className="text-xs text-[var(--muted-foreground)] truncate">{p.id}</p>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-sm text-[var(--muted-foreground)] line-clamp-2 h-10">{p.description || "No description — add scope to start scanning"}</p>
+                  <p className="text-sm text-[var(--muted-foreground)] line-clamp-2 h-10">{p.description || "No description — add scope to start"}</p>
                   <p className="text-xs text-[var(--muted-foreground)] mt-3">{new Date(p.created_at).toLocaleDateString()}</p>
                 </CardContent>
               </Card>
@@ -116,14 +133,14 @@ export default function ProjectsPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setShowModal(false)}>
           <div onClick={(e) => e.stopPropagation()} className="w-full max-w-md">
             <Card>
-              <CardHeader><CardTitle>Create Project</CardTitle><p className="text-xs text-[var(--muted-foreground)]">POST /api/v1/projects/ — name is required, validated (2-255 chars)</p></CardHeader>
+              <CardHeader><CardTitle>Create Project</CardTitle></CardHeader>
               <CardContent className="space-y-4">
-                <div className="space-y-2"><Label>Name *</Label><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="My Pentest Scope" maxLength={255} /></div>
-                <div className="space-y-2"><Label>Description</Label><Input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Optional — e.g., external perimeter" /></div>
+                <div className="space-y-2"><Label>Name *</Label><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="My Pentest Scope" maxLength={255} disabled={loading} /></div>
+                <div className="space-y-2"><Label>Description</Label><Input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Optional" disabled={loading} /></div>
                 {msg && <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded p-2">{msg}</p>}
                 <div className="flex gap-2 justify-end">
-                  <Button variant="ghost" onClick={() => setShowModal(false)}>Cancel</Button>
-                  <Button onClick={create} disabled={loading}>{loading ? "..." : "Create"}</Button>
+                  <Button variant="ghost" onClick={() => setShowModal(false)} disabled={loading}>Cancel</Button>
+                  <Button onClick={create} disabled={loading}>{loading ? "Creating..." : "Create"}</Button>
                 </div>
               </CardContent>
             </Card>
