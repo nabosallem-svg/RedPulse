@@ -1,4 +1,4 @@
-"""Async database session management for ReconPilot.
+﻿"""Async database session management for RedPulse.
 
 Provides:
 - Async engine creation with proper echo configuration

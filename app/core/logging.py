@@ -1,4 +1,4 @@
-"""ReconPilot - Structured Logging Module.
+﻿"""RedPulse - Structured Logging Module.
 
 Every major operation should have:
 - timestamp
@@ -109,7 +109,7 @@ def structured_log(
     Returns:
         Logger with structured event
     """
-    logger = logging.getLogger(f"reconpilot.{event_type}")
+    logger = logging.getLogger(f"RedPulse.{event_type}")
 
     # Build structured context, filtering sensitive data
     context: Dict[str, Any] = {

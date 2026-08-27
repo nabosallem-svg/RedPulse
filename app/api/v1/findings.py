@@ -1,4 +1,4 @@
-"""ReconPilot - Findings API Routes.
+﻿"""RedPulse - Findings API Routes.
 
 Security finding management, deduplication, and scoring.
 """

@@ -1,7 +1,7 @@
-# ReconPilot - Project Rules and Guidelines
+﻿# RedPulse - Project Rules and Guidelines
 
 ## Overview
-ReconPilot is an authorized security assessment and continuous monitoring platform. All work must enforce scope boundaries and respect authorization limits.
+RedPulse is an authorized security assessment and continuous monitoring platform. All work must enforce scope boundaries and respect authorization limits.
 
 ## Architecture Rules
 
@@ -87,7 +87,7 @@ ReconPilot is an authorized security assessment and continuous monitoring platfo
 ### 13. Development Strategy
 - Follow the 14-phase plan exactly
 - Before coding: analyze repo, create AGENTS.md, create architecture docs, create roadmap
-- Implement phases sequentially: skeleton → DB → scope → recon → asset → scanner → findings → monitoring → notifications → AI → frontend → auth → testing → Docker
+- Implement phases sequentially: skeleton â†’ DB â†’ scope â†’ recon â†’ asset â†’ scanner â†’ findings â†’ monitoring â†’ notifications â†’ AI â†’ frontend â†’ auth â†’ testing â†’ Docker
 - Do not start implementing until architecture is internally consistent
 
 ### 14. Emergencies

@@ -1,4 +1,4 @@
-"""ReconPilot - Scope Validator.
+﻿"""RedPulse - Scope Validator.
 
 Single choke-point function that every future phase (recon, scanning) must call
 before touching any target. Enforces scope boundaries with strict ordering:
@@ -8,9 +8,11 @@ before touching any target. Enforces scope boundaries with strict ordering:
 4. Host does not match any exclude ScopeRule
 
 Raises ScopeViolation on any failure. Returns None (silently) if allowed.
+Controlled Pentesting: only targeted scanning via validate_target, no destructive exploits.
 """
 
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Engagement, Authorization, Project, ScopeRule, User
 from app.services.global_exclusions import is_excluded
@@ -28,7 +30,7 @@ class ScopeViolation(Exception):
         super().__init__(self.detail)
 
 
-def validate_target(engagement_id: str, host_or_url: str, db: Session, current_user: User) -> None:
+async def validate_target(engagement_id: str, host_or_url: str, db: AsyncSession, current_user: User) -> None:
     """Validate that a target host is in-scope for the given engagement.
 
     Order of checks (early-exit, first failure stops remaining checks):
@@ -41,7 +43,7 @@ def validate_target(engagement_id: str, host_or_url: str, db: Session, current_u
     Args:
         engagement_id: The engagement UUID/ID string
         host_or_url: The host or URL to validate (scheme-agnostic, just hostname)
-        db: SQLAlchemy session
+        db: SQLAlchemy AsyncSession
         current_user: The authenticated user
 
     Raises:
@@ -55,12 +57,14 @@ def validate_target(engagement_id: str, host_or_url: str, db: Session, current_u
         )
 
     # ---- 2. Engagement exists and belongs to user's project ----
-    from app.db.models import Project
-
-    engagement = db.query(Engagement).filter(
-        Engagement.id == engagement_id,
-        Engagement.project.has(Project.owner_id == current_user.id)
-    ).first()
+    result = await db.execute(
+        select(Engagement).join(Project).where(
+            Engagement.id == engagement_id,
+            Project.id == Engagement.project_id,
+            Project.owner_id == current_user.id
+        )
+    )
+    engagement = result.scalar_one_or_none()
 
     if not engagement:
         raise ScopeViolation(
@@ -70,10 +74,13 @@ def validate_target(engagement_id: str, host_or_url: str, db: Session, current_u
     # ---- 3. Engagement has a verified, non-expired Authorization ----
     from datetime import datetime, timezone
 
-    auth_row = db.query(Authorization).filter(
-        Authorization.engagement_id == engagement.id,
-        Authorization.user_id == current_user.id,
-    ).first()
+    result = await db.execute(
+        select(Authorization).where(
+            Authorization.engagement_id == engagement.id,
+            Authorization.user_id == current_user.id,
+        )
+    )
+    auth_row = result.scalar_one_or_none()
 
     if not auth_row:
         raise ScopeViolation(
@@ -86,35 +93,46 @@ def validate_target(engagement_id: str, host_or_url: str, db: Session, current_u
             "Authorization is not yet verified for this engagement."
         )
 
-    # Check expiration (Authorization has no explicit expires_at in current model,
-    # but engagement has expires_at - use that as reference)
-    if engagement.expires_at and engagement.expires_at < datetime.now(timezone.utc):
-        raise ScopeViolation(
-            "Engagement authorization has expired. Please renew."
-        )
+    # Check expiration on Authorization (not Engagement)
+    expires_at = getattr(auth_row, "expires_at", None) or getattr(engagement, "expires_at", None)
+    if expires_at:
+        # Ensure timezone aware comparison
+        now = datetime.now(timezone.utc)
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at < now:
+            raise ScopeViolation(
+                "Engagement authorization has expired. Please renew."
+            )
 
     # ---- 4. Host matches at least one include ScopeRule ----
-    included = db.query(ScopeRule).filter(
-        ScopeRule.engagement_id == engagement.id,
-        ScopeRule.is_include == True,
-        ScopeRule.target.like(f"%{host_or_url}%")
-        # Note: real implementation would have proper pattern matching;
-        # this is a simplified check. For production, use CIDR/domain matching.
-    ).first()
+    # ScopeRule uses pattern + rule_type (include/exclude), not target/is_include
+    result = await db.execute(
+        select(ScopeRule).where(
+            ScopeRule.engagement_id == engagement.id,
+            ScopeRule.rule_type == "include",
+        )
+    )
+    include_rules = result.scalars().all()
+    # Simple substring match for now; production uses proper domain/CIDR matching
+    matched_include = any(host_or_url in r.pattern or r.pattern in host_or_url or host_or_url.endswith(r.pattern.lstrip("*.")) for r in include_rules)
 
-    if not included:
+    if not include_rules or not matched_include:
         raise ScopeViolation(
             f"Host '{host_or_url}' does not match any include rule for engagement {engagement.id}"
         )
 
     # ---- 5. Host does not match any exclude ScopeRule ----
-    excluded = db.query(ScopeRule).filter(
-        ScopeRule.engagement_id == engagement.id,
-        ScopeRule.is_include == False,
-        ScopeRule.target.like(f"%{host_or_url}%")
-    ).first()
+    result = await db.execute(
+        select(ScopeRule).where(
+            ScopeRule.engagement_id == engagement.id,
+            ScopeRule.rule_type == "exclude",
+        )
+    )
+    exclude_rules = result.scalars().all()
+    matched_exclude = any(host_or_url in r.pattern or r.pattern in host_or_url or host_or_url.endswith(r.pattern.lstrip("*.")) for r in exclude_rules)
 
-    if excluded:
+    if matched_exclude:
         raise ScopeViolation(
             f"Host '{host_or_url}' matches an exclude rule for engagement {engagement.id}"
         )

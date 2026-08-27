@@ -1,4 +1,4 @@
-"""ReconPilot - Global Exclusion Layer.
+﻿"""RedPulse - Global Exclusion Layer.
 
 Hard-coded denylist of protected TLDs and IP ranges checked on every target
 regardless of authorization method or scope rules. Exclusion always wins over

@@ -1,6 +1,6 @@
-"""ReconPilot - Database Models.
+﻿"""RedPulse - Database Models.
 
-SQLAlchemy ORM models for the ReconPilot platform.
+SQLAlchemy ORM models for the RedPulse platform.
 All tenant-owned tables include project_id or organization_id for isolation.
 """
 

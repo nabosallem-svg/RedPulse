@@ -1,4 +1,4 @@
-"""ReconPilot - Bug Bounty Program Verification.
+﻿"""RedPulse - Bug Bounty Program Verification.
 
 Verifies engagement authorization against officially recognized bug bounty
 programs (HackerOne, Bugcrowd, etc.) by calling the platform's API using
@@ -17,7 +17,7 @@ Flow:
    c) Pull the program's official in-scope and out-of-scope assets
 4. Writes those as ScopeRule rows with source="bounty_platform_synced"
 5. Sets verified=True, Engagement.status="authorized", expires_at = 7 days
-6. If API call fails or user not associated → reject with clear error
+6. If API call fails or user not associated â†’ reject with clear error
 """
 
 from sqlalchemy.orm import Session

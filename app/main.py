@@ -1,4 +1,4 @@
-"""ReconPilot - Main Application Entry Point.
+﻿"""RedPulse - Main Application Entry Point.
 
 FastAPI application with lifecycle management, middleware, and route inclusion.
 """
@@ -43,9 +43,9 @@ async def lifespan(app: FastAPI):
     Startup: Initialize database, load configs.
     Shutdown: Cleanup resources, close connections.
     """
-    logger.info("Starting ReconPilot application...")
+    logger.info("Starting RedPulse application...")
     yield
-    logger.info("Shutting down ReconPilot application...")
+    logger.info("Shutting down RedPulse application...")
 
 
 def create_app() -> FastAPI:
@@ -53,7 +53,7 @@ def create_app() -> FastAPI:
     settings = get_settings()
 
     app = FastAPI(
-        title="ReconPilot",
+        title="RedPulse",
         description="Automated security research and continuous attack-surface monitoring platform",
         version="0.1.0",
         docs_url="/docs" if settings.LOG_LEVEL != "disabled" else None,
@@ -66,14 +66,40 @@ def create_app() -> FastAPI:
     async def health_check():
         return {"status": "ok"}
 
-    # CORS middleware
+    # CORS - Next.js local & production (React/Next.js dashboard)
+    default_origins = [
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001",
+    ]
+    configured = settings.BACKEND_CORS_ORIGINS or []
+    # Merge and dedupe, keep order
+    origins = []
+    for o in list(configured) + default_origins:
+        if o and o not in origins:
+            origins.append(o)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.BACKEND_CORS_ORIGINS,
+        allow_origins=origins,
+        allow_origin_regex=r"https://.*\.vercel\.app",
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["Content-Disposition"],
     )
+
+    # Security headers for frontend
+    @app.middleware("http")
+    async def add_security_headers(request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        response.headers["X-API-Version"] = "0.1.0"
+        return response
 
     # Include API routes
     from app.api.v1.auth import router as auth_router
@@ -95,6 +121,26 @@ def create_app() -> FastAPI:
     app.include_router(recon_router, prefix="/api/v1/recon", tags=["recon"])
 
     app.include_router(vuln_router, prefix="/api/v1/vuln", tags=["vulnerability"])
+
+    from app.api.v1.pentest import router as pentest_router
+
+    app.include_router(pentest_router, prefix="/api/v1/projects", tags=["pentest"])
+
+    from app.api.v1.compliance import router as compliance_router
+
+    app.include_router(compliance_router, prefix="/api/v1/projects", tags=["compliance"])
+
+    from app.api.v1.exports import router as exports_router
+
+    app.include_router(exports_router, prefix="/api/v1/findings", tags=["integrations"])
+
+    from app.api.v1.retest import router as retest_router
+
+    app.include_router(retest_router, prefix="/api/v1/findings", tags=["retest"])
+
+    from app.api.v1.bounty_export import router as bounty_router
+
+    app.include_router(bounty_router, prefix="/api/v1/projects", tags=["bounty"])
 
     # Temporary me endpoint for auth testing
     @app.get("/api/v1/me", tags=["auth"])

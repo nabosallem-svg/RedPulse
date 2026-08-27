@@ -1,4 +1,4 @@
-"""ReconPilot - Assets API Routes.
+﻿"""RedPulse - Assets API Routes.
 
 Asset intelligence and discovery.
 """

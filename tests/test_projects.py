@@ -1,4 +1,4 @@
-"""ReconPilot - Project Tests.
+﻿"""RedPulse - Project Tests.
 
 End-to-end tests for project creation, listing, and retrieval.
 Uses SQLite in-memory for test database isolation.
@@ -40,13 +40,27 @@ def test_create_project_duplicate_name_fails(client):
 
 
 def test_list_projects(client):
-    """List projects for authenticated user."""
+    """List projects for authenticated user (paginated)."""
     auth_headers = _signup(client)
     client.post("/api/v1/projects/", json={"name": "My Project"}, headers=auth_headers)
     response = client.get("/api/v1/projects/", headers=auth_headers)
     assert response.status_code == 200
     data = response.json()
-    assert len(data) >= 1
+    # Paginated envelope: {success, data, meta}
+    if isinstance(data, dict) and "data" in data:
+        assert data["success"] is True
+        assert "meta" in data
+        assert data["meta"]["total"] >= 1
+        assert len(data["data"]) >= 1
+        # Verify pagination params work
+        resp2 = client.get("/api/v1/projects/?page=1&per_page=1", headers=auth_headers)
+        assert resp2.status_code == 200
+        paginated = resp2.json()
+        assert paginated["meta"]["page"] == 1
+        assert paginated["meta"]["per_page"] == 1
+        assert paginated["meta"]["total"] >= 1
+    else:
+        assert len(data) >= 1
 
 
 def test_get_project_ownership(client):

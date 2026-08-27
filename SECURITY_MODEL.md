@@ -1,4 +1,4 @@
-# ReconPilot - Security Model
+﻿# RedPulse - Security Model
 
 ## 1. Core Security Principles
 
@@ -51,7 +51,7 @@ priority:   deterministic score - severity + confidence + asset criticality
 
 #### 1.7.2. Priority Algorithm (Deterministic)
 ```
-priority = (severity_weight × 0.4) + (confidence × 0.4) + (asset_criticality × 0.2)
+priority = (severity_weight Ã— 0.4) + (confidence Ã— 0.4) + (asset_criticality Ã— 0.2)
 where:
 - severity_weight: HIGH=100, MEDIUM=50, LOW=25
 - confidence: actual percentage (0-100)
@@ -59,7 +59,7 @@ where:
 
 Example:
   severity = HIGH (100), confidence = 95, asset_criticality = 70
-  priority = (100 × 0.4) + (95 × 0.4) + (70 × 0.2) = 40 + 38 + 14 = 92
+  priority = (100 Ã— 0.4) + (95 Ã— 0.4) + (70 Ã— 0.2) = 40 + 38 + 14 = 92
 ```
 
 #### 1.7.3. AI Boundary Conditions
@@ -93,11 +93,11 @@ Example:
 
 ### 1.11. Scope Enforcement Workflow
 ```
-User adds target → Scope normalization → Scope database check → 
-Scope status assigned (in_scope/out_of_scope/pending_review) → 
-Scanner job verification (LAST step before execution) → 
-If out_of_scope: LOG and SKIP → 
-If in_scope: Execute scanner → Process findings → Deduplicate
+User adds target â†’ Scope normalization â†’ Scope database check â†’ 
+Scope status assigned (in_scope/out_of_scope/pending_review) â†’ 
+Scanner job verification (LAST step before execution) â†’ 
+If out_of_scope: LOG and SKIP â†’ 
+If in_scope: Execute scanner â†’ Process findings â†’ Deduplicate
 ```
 
 ### 1.12. Data Sanitization

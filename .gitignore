@@ -11,3 +11,8 @@ check_*.py
 fix_indent.py
 verify_done.py
 RUN.bat
+
+# Generated artifacts (not source)
+demo.db
+*.db
+openapi.json

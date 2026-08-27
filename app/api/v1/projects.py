@@ -1,4 +1,4 @@
-"""ReconPilot - Projects Routes.
+﻿"""RedPulse - Projects Routes.
 
 Handles project creation, listing, and retrieval for authenticated users.
 Each project is owned by a single user, and users can only access their own projects.
@@ -6,7 +6,7 @@ Each project is owned by a single user, and users can only access their own proj
 
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -68,23 +68,22 @@ async def create_project(
     )
 
 
-@router.get("/", response_model=List[ProjectSchema])
+@router.get("/", response_model=None)
 async def list_projects(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> List[ProjectSchema]:
-    """List all projects owned by the current user.
-
-    Args:
-        db: Database session
-        current_user: Authenticated user
-
-    Returns:
-        List of project schemas
-    """
+    page: int = Query(1, ge=1, description="Page number"),
+    per_page: int = Query(50, ge=1, le=100, description="Items per page"),
+):
+    """List all projects owned by the current user (paginated)."""
     result = await db.execute(select(Project).where(Project.owner_id == current_user.id))
     projects = result.scalars().all()
-    return [
+    total = len(projects)
+    pages = (total + per_page - 1) // per_page if total else 1
+    start = (page - 1) * per_page
+    end = start + per_page
+    paginated = projects[start:end]
+    data = [
         ProjectSchema(
             id=p.id,
             name=p.name,
@@ -93,8 +92,9 @@ async def list_projects(
             owner_id=p.owner_id,
             created_at=p.created_at,
         )
-        for p in projects
+        for p in paginated
     ]
+    return {"success": True, "data": data, "meta": {"page": page, "per_page": per_page, "total": total, "pages": pages}}
 
 
 @router.get("/{project_id}", response_model=ProjectSchema)

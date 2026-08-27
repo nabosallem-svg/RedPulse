@@ -1,4 +1,4 @@
-"""ReconPilot - DNS Verification Tests.
+﻿"""RedPulse - DNS Verification Tests.
 
 Tests DNS TXT verification flow for domain ownership.
 """

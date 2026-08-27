@@ -1,4 +1,4 @@
-"""ReconPilot - Pydantic Schemas.
+﻿"""RedPulse - Pydantic Schemas.
 
 Request/response schemas for the API layer. All schemas use Pydantic v2.
 """

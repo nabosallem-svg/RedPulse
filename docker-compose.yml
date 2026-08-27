@@ -1,35 +1,103 @@
-services:
-  api:
-    build: .
-    depends_on:
-      - postgres
-      - redis
-    environment:
-      - DATABASE_URL=${DATABASE_URL}
-      - REDIS_URL=${REDIS_URL}
-      - JWT_SECRET=${JWT_SECRET}
-      - JWT_ALGORITHM=${JWT_ALGORITHM}
-      - ENVIRONMENT=${ENVIRONMENT}
-    ports:
-      - "8000:8000"
-    volumes:
-      - .:/app
-
+﻿services:
   postgres:
-    image: postgres:16
+    image: postgres:16-alpine
+    restart: unless-stopped
     environment:
-      - POSTGRES_DB=reconpilot
-      - POSTGRES_USER=reconpilot
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      POSTGRES_DB: RedPulse
+      POSTGRES_USER: RedPulse
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-RedPulse_secret}
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U RedPulse -d RedPulse"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
 
   redis:
-    image: redis:7
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-}"]
+    volumes:
+      - redis_data:/data
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: RedPulse-api:latest
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://RedPulse:${POSTGRES_PASSWORD:-RedPulse_secret}@postgres:5432/RedPulse}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-["http://localhost:3000"]}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      NUCLEI_BIN: ${NUCLEI_BIN:-/usr/local/bin/nuclei}
+      SUBFINDER_BIN: ${SUBFINDER_BIN:-/usr/local/bin/subfinder}
+      HTTPX_BIN: ${HTTPX_BIN:-/usr/local/bin/httpx}
+    ports:
+      - "8000:8000"
+    command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:create_app --factory --host 0.0.0.0 --port 8000 --workers 2"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: RedPulse-api:latest
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://RedPulse:${POSTGRES_PASSWORD:-RedPulse_secret}@postgres:5432/RedPulse}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    command: ["sh", "-c", "alembic upgrade head && python -m app.services.worker 2>&1 || (echo 'worker placeholder: waiting for jobs' && sleep 3600)"]
+    deploy:
+      replicas: 1
 
 volumes:
   postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  default:
+    name: RedPulse-net

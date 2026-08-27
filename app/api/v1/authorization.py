@@ -1,4 +1,4 @@
-"""ReconPilot - Authorization Endpoints.
+﻿"""RedPulse - Authorization Endpoints.
 
 Handles engagement authorization via two methods:
 1. DNS TXT verification (for self-owned targets)
@@ -122,7 +122,7 @@ async def _handle_dns_txt_verification(
     
     # Instructions for the user
     instructions = (
-        f"Add TXT record: `reconpilot-verify={token}` "
+        f"Add TXT record: `RedPulse-verify={token}` "
         f"to your DNS for domain `{target_domain}`"
     )
     

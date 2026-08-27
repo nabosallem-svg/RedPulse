@@ -1,4 +1,4 @@
-"""ReconPilot - Scope Management Endpoints.
+﻿"""RedPulse - Scope Management Endpoints.
 
 Handles manual scope rule addition and retrieval for engagements.
 """

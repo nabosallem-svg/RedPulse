@@ -1,4 +1,4 @@
-"""SQLAlchemy database models for ReconPilot.
+﻿"""SQLAlchemy database models for RedPulse.
 
 Models: User, Project, Engagement, Authorization, ScopeRule.
 Enums are Python Enum classes mapped via SQLAlchemy Enum for DB-level enforcement.

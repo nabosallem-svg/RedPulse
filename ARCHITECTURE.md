@@ -1,9 +1,9 @@
-# ReconPilot - Architecture Specification
+﻿# RedPulse - Architecture Specification
 
 ## 1. High-Level Architecture
 
 ### 1.1. Overview
-ReconPilot is a Python FastAPI application with PostgreSQL as the persistence layer. The system follows a modular, phase-gated approach where each phase builds upon the previous one.
+RedPulse is a Python FastAPI application with PostgreSQL as the persistence layer. The system follows a modular, phase-gated approach where each phase builds upon the previous one.
 
 ### 1.2. Component Diagram
 ```
@@ -61,54 +61,54 @@ ReconPilot is a Python FastAPI application with PostgreSQL as the persistence la
 ## 3. Directory Structure
 
 ```
-reconpilot/
-├── AGENTS.md                  # Project rules (this file)
-├── ARCHITECTURE.md            # Architecture specification
-├── pyproject.toml            # Python project config
-├── requirements.txt          # Dependencies
-├── .env.example              # Configuration template
-├── alembic.ini              # Migration config
-├── scripts/                 # Helper scripts
-│   └── init_db.py
-├── migrations/              # SQLAlchemy migrations
-├── app/
-│   ├── __init__.py
-│   ├── main.py               # FastAPI entry point
-│   ├── config.py             # Configuration loading from .env
-│   ├── core/                # Core functionality
-│   │   ├── security.py       # Auth, scope enforcement
-│   │   └── logging.py        # Structured logging
-│   ├── models/              # SQLAlchemy models
-│   ├── schemas/             # Pydantic schemas
-│   ├── api/                 # Route handlers (route modules)
-│   │   ├── v1/
-│   │   │   ├── projects.py
-│   │   │   ├── scopes.py
-│   │   │   ├── scans.py
-│   │   │   ├── assets.py
-│   │   │   ├── findings.py
-│   │   │   ├── monitoring.py
-│   │   │   ├── reports.py
-│   │   │   └── notifications.py
-│   ├── services/            # Business logic services
-│   │   ├── scope_engine.py
-│   │   ├── recon_engine.py
-│   │   ├── asset_service.py
-│   │   ├── scanner_service.py
-│   │   ├── finding_service.py
-│   │   ├── monitoring_service.py
-│   │   ├── ai_service.py
-│   │   └── report_service.py
-│   └── workers/             # Background task workers
-│       ├── __init__.py
-│       ├── recon_worker.py
-│       ├── monitoring_worker.py
-│       └── notification_worker.py
-└── tests/                   # Test suite
-    ├── unit/
-    ├── integration/
-    ├── conftest.py
-    └── fixtures/
+RedPulse/
+â”œâ”€â”€ AGENTS.md                  # Project rules (this file)
+â”œâ”€â”€ ARCHITECTURE.md            # Architecture specification
+â”œâ”€â”€ pyproject.toml            # Python project config
+â”œâ”€â”€ requirements.txt          # Dependencies
+â”œâ”€â”€ .env.example              # Configuration template
+â”œâ”€â”€ alembic.ini              # Migration config
+â”œâ”€â”€ scripts/                 # Helper scripts
+â”‚   â””â”€â”€ init_db.py
+â”œâ”€â”€ migrations/              # SQLAlchemy migrations
+â”œâ”€â”€ app/
+â”‚   â”œâ”€â”€ __init__.py
+â”‚   â”œâ”€â”€ main.py               # FastAPI entry point
+â”‚   â”œâ”€â”€ config.py             # Configuration loading from .env
+â”‚   â”œâ”€â”€ core/                # Core functionality
+â”‚   â”‚   â”œâ”€â”€ security.py       # Auth, scope enforcement
+â”‚   â”‚   â””â”€â”€ logging.py        # Structured logging
+â”‚   â”œâ”€â”€ models/              # SQLAlchemy models
+â”‚   â”œâ”€â”€ schemas/             # Pydantic schemas
+â”‚   â”œâ”€â”€ api/                 # Route handlers (route modules)
+â”‚   â”‚   â”œâ”€â”€ v1/
+â”‚   â”‚   â”‚   â”œâ”€â”€ projects.py
+â”‚   â”‚   â”‚   â”œâ”€â”€ scopes.py
+â”‚   â”‚   â”‚   â”œâ”€â”€ scans.py
+â”‚   â”‚   â”‚   â”œâ”€â”€ assets.py
+â”‚   â”‚   â”‚   â”œâ”€â”€ findings.py
+â”‚   â”‚   â”‚   â”œâ”€â”€ monitoring.py
+â”‚   â”‚   â”‚   â”œâ”€â”€ reports.py
+â”‚   â”‚   â”‚   â””â”€â”€ notifications.py
+â”‚   â”œâ”€â”€ services/            # Business logic services
+â”‚   â”‚   â”œâ”€â”€ scope_engine.py
+â”‚   â”‚   â”œâ”€â”€ recon_engine.py
+â”‚   â”‚   â”œâ”€â”€ asset_service.py
+â”‚   â”‚   â”œâ”€â”€ scanner_service.py
+â”‚   â”‚   â”œâ”€â”€ finding_service.py
+â”‚   â”‚   â”œâ”€â”€ monitoring_service.py
+â”‚   â”‚   â”œâ”€â”€ ai_service.py
+â”‚   â”‚   â””â”€â”€ report_service.py
+â”‚   â””â”€â”€ workers/             # Background task workers
+â”‚       â”œâ”€â”€ __init__.py
+â”‚       â”œâ”€â”€ recon_worker.py
+â”‚       â”œâ”€â”€ monitoring_worker.py
+â”‚       â””â”€â”€ notification_worker.py
+â””â”€â”€ tests/                   # Test suite
+    â”œâ”€â”€ unit/
+    â”œâ”€â”€ integration/
+    â”œâ”€â”€ conftest.py
+    â””â”€â”€ fixtures/
 ```
 
 ## 4. Database Design Philosophy
@@ -200,16 +200,16 @@ async def run_scanner(cmd_args, timeout=300):
 
 ### 6.2. Asset States
 ```
-in_scope      → authorized and currently being scanned
-out_of_scope  → explicitly out of scope, never to be scanned
-pending_review → discovered during scan, needs manual review for scope assignment
+in_scope      â†’ authorized and currently being scanned
+out_of_scope  â†’ explicitly out of scope, never to be scanned
+pending_review â†’ discovered during scan, needs manual review for scope assignment
 ```
 
 ### 6.3. Scope Enforcement
 - Every scanner job checks target against project scope before execution
 - Scope check is the LAST step before scanner execution
-- If target is out_of_scope → log and skip
-- If target is pending_review → log and either include or exclude based on policy
+- If target is out_of_scope â†’ log and skip
+- If target is pending_review â†’ log and either include or exclude based on policy
 
 ## 7. Recon Engine Architecture
 
@@ -248,7 +248,7 @@ class ReconTool(Protocol):
 
 ### 8.1. Scanner Abstraction
 - Base class or protocol for all scanners
-- Targeting layer: asset → classify → determine relevant checks → execute targeted scan
+- Targeting layer: asset â†’ classify â†’ determine relevant checks â†’ execute targeted scan
 
 ### 8.2. Nuclei Integration
 - Run nuclei templates against in-scope assets only
@@ -259,9 +259,9 @@ class ReconTool(Protocol):
 ### 8.3. Targeting Layer
 ```
 Asset
-  → classify (determine type: HTTP, API, etc.)
-  → determine relevant checks (match template tags to asset type/tech)
-  → execute targeted scan (run only relevant templates)
+  â†’ classify (determine type: HTTP, API, etc.)
+  â†’ determine relevant checks (match template tags to asset type/tech)
+  â†’ execute targeted scan (run only relevant templates)
 ```
 
 ### 8.4. Scan Profiles
@@ -300,9 +300,9 @@ where:
 
 ### 9.4. Finding States
 ```
-new → confirmed → (accepted/resolved) | false_positive
-      ↑              |
-      └── reopened (if reappears)
+new â†’ confirmed â†’ (accepted/resolved) | false_positive
+      â†‘              |
+      â””â”€â”€ reopened (if reappears)
 ```
 
 ## 10. AI Security Analyst

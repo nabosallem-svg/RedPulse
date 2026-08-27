@@ -1,4 +1,4 @@
-"""SQLAlchemy declarative base for ReconPilot."""
+﻿"""SQLAlchemy declarative base for RedPulse."""
 
 from sqlalchemy.ext.asyncio import AsyncAttrs
 from sqlalchemy.orm import DeclarativeBase

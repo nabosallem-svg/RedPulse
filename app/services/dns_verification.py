@@ -1,4 +1,4 @@
-"""ReconPilot - DNS TXT Verification.
+﻿"""RedPulse - DNS TXT Verification.
 
 Performs live DNS TXT lookups using dnspython to verify target domain ownership.
 Used in the `dns_txt` authorization method.
@@ -6,10 +6,10 @@ Used in the `dns_txt` authorization method.
 The flow:
 1. Authorization request generates a random verification token
 2. Token is stored on the Authorization row with verified=False
-3. User adds TXT record to their DNS:  reconpilot-verify=<token>
+3. User adds TXT record to their DNS:  RedPulse-verify=<token>
 4. This function performs a live DNS TXT lookup to check if the record exists
-5. Match → verified=True, Engagement becomes authorized
-6. No match → allow retry (nothing changed)
+5. Match â†’ verified=True, Engagement becomes authorized
+6. No match â†’ allow retry (nothing changed)
 """
 
 import uuid
@@ -21,7 +21,7 @@ from app.services.global_exclusions import is_excluded
 
 def generate_verification_token() -> str:
     """Generate a random verification token for DNS TXT verification."""
-    return f"reconpilot-verify-{uuid.uuid4().hex[:32]}"
+    return f"RedPulse-verify-{uuid.uuid4().hex[:32]}"
 
 
 def verify_dns_txt(target_domain: str, expected_token: str) -> bool:
@@ -30,7 +30,7 @@ def verify_dns_txt(target_domain: str, expected_token: str) -> bool:
 
     Checks if a TXT record containing the expected_token exists for the
     target domain. The DNS TXT record should be formatted as:
-    reconpilot-verify=<token>
+    RedPulse-verify=<token>
 
     This function also checks global exclusions first - if the domain is
     in the exclusion list, verification fails immediately.
@@ -60,7 +60,7 @@ def verify_dns_txt(target_domain: str, expected_token: str) -> bool:
             # Join all string parts as the full TXT record value
             txt_value = "".join(str(rdata.str_rdata))
             # TXT records may have the value in quotes or without
-            # Look for the reconpilot-verify token within the TXT value
+            # Look for the RedPulse-verify token within the TXT value
             if expected_token in txt_value:
                 return True
 

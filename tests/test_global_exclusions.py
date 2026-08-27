@@ -1,4 +1,4 @@
-"""ReconPilot - Global Exclusions Tests.
+﻿"""RedPulse - Global Exclusions Tests.
 
 Tests that global TLD exclusions (.gov, .mil, .edu) are always blocked.
 """

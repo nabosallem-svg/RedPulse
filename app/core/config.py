@@ -1,4 +1,4 @@
-"""ReconPilot - Configuration Management
+﻿"""RedPulse - Configuration Management
 
 Loads configuration from environment variables using .env file.
 Never commit .env to version control.
@@ -14,7 +14,7 @@ class Settings(BaseSettings):
 
     # Database
     DATABASE_URL: str = Field(
-        default="postgresql+asyncpg://localhost/reconpilot",
+        default="postgresql+asyncpg://localhost/RedPulse",
         env="DATABASE_URL",
     )
 
@@ -26,7 +26,7 @@ class Settings(BaseSettings):
 
     # JWT configuration
     JWT_SECRET: str = Field(
-        default="reconpilot-dev-secret-change-in-production",
+        default="RedPulse-dev-secret-change-in-production",
         env="JWT_SECRET",
     )
     JWT_ALGORITHM: str = Field(

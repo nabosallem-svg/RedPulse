@@ -1,4 +1,4 @@
-"""ReconPilot - Authentication Service.
+﻿"""RedPulse - Authentication Service.
 
 Handles user creation, authentication, and token refresh operations.
 """

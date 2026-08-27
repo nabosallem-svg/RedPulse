@@ -1,4 +1,4 @@
-"""ReconPilot - Engagements Routes.
+﻿"""RedPulse - Engagements Routes.
 
 Handles engagement creation, listing, and retrieval for authenticated users.
 Engagements belong to projects, and users can only access engagements
@@ -7,7 +7,7 @@ under projects they own.
 
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -73,20 +73,14 @@ async def create_engagement(
     )
 
 
-@router.get("/", response_model=List[EngagementSchema])
+@router.get("/", response_model=None)
 async def list_engagements(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> List[EngagementSchema]:
-    """List all engagements under projects owned by the current user.
-
-    Args:
-        db: Database session
-        current_user: Authenticated user
-
-    Returns:
-        List of engagement schemas
-    """
+    page: int = Query(1, ge=1, description="Page number"),
+    per_page: int = Query(50, ge=1, le=100, description="Items per page"),
+):
+    """List all engagements under projects owned by the current user (paginated)."""
     # Get all projects owned by current user
     result = await db.execute(select(Project).where(Project.owner_id == current_user.id))
     projects = result.scalars().all()
@@ -109,7 +103,12 @@ async def list_engagements(
                 )
             )
 
-    return engagements
+    total = len(engagements)
+    pages = (total + per_page - 1) // per_page if total else 1
+    start = (page - 1) * per_page
+    end = start + per_page
+    paginated = engagements[start:end]
+    return {"success": True, "data": paginated, "meta": {"page": page, "per_page": per_page, "total": total, "pages": pages}}
 
 
 @router.get("/{engagement_id}", response_model=EngagementSchema)

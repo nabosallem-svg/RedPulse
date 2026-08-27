@@ -1,4 +1,4 @@
-"""ReconPilot - Reports API Routes.
+﻿"""RedPulse - Reports API Routes.
 
 Report generation and quality checking.
 """

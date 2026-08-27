@@ -1,4 +1,4 @@
-"""ReconPilot - Configuration Management
+﻿"""RedPulse - Configuration Management
 
 Loads configuration from environment variables using .env file.
 Never commit .env to version control.
@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     
     # Database
     DATABASE_URL: str = Field(..., env="DATABASE_URL")
-    # SQLite allowed only for dev/testing: sqlite+aiosqlite:///./reconpilot.db
+    # SQLite allowed only for dev/testing: sqlite+aiosqlite:///./RedPulse.db
     
     # Redis (for future worker setup)
     REDIS_URL: str = Field("", env="REDIS_URL")

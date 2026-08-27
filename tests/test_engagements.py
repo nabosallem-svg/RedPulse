@@ -1,4 +1,4 @@
-"""ReconPilot - Engagement Tests.
+﻿"""RedPulse - Engagement Tests.
 
 End-to-end tests for engagement creation, listing, and retrieval.
 Uses SQLite in-memory for test database isolation.
@@ -53,7 +53,7 @@ def test_create_engagement_draft_status(client):
 
 
 def test_list_engagements(client):
-    """List engagements for user's projects."""
+    """List engagements for user's projects (paginated)."""
     auth_headers = _signup(client)
     proj_resp = client.post("/api/v1/projects/", json={"name": "My Project"}, headers=auth_headers)
     assert proj_resp.status_code == 201
@@ -66,7 +66,20 @@ def test_list_engagements(client):
     assert eng_resp.status_code == 201
     response = client.get("/api/v1/engagements/", headers=auth_headers)
     assert response.status_code == 200
-    assert len(response.json()) >= 1
+    data = response.json()
+    if isinstance(data, dict) and "data" in data:
+        assert data["success"] is True
+        assert "meta" in data
+        assert data["meta"]["total"] >= 1
+        assert len(data["data"]) >= 1
+        # Pagination check
+        resp2 = client.get("/api/v1/engagements/?page=1&per_page=1", headers=auth_headers)
+        assert resp2.status_code == 200
+        paginated = resp2.json()
+        assert paginated["meta"]["page"] == 1
+        assert paginated["meta"]["per_page"] == 1
+    else:
+        assert len(data) >= 1
 
 
 def test_get_engagement_ownership(client):

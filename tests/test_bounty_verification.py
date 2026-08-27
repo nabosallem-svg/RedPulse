@@ -1,4 +1,4 @@
-"""ReconPilot - Bug Bounty Verification Tests.
+﻿"""RedPulse - Bug Bounty Verification Tests.
 
 Tests bug bounty program verification flow with mock API responses.
 """

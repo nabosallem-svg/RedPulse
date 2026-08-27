@@ -1,4 +1,4 @@
-# ReconPilot - Worker Architecture
+﻿# RedPulse - Worker Architecture
 
 ## 1. Design Philosophy
 
@@ -230,9 +230,9 @@ async def lifespan(app: FastAPI):
 
 ### 5.1. State Machine per Scan Job
 ```
-pending → running → completed/failed
-     ↑               |
-     └── cancelled --+
+pending â†’ running â†’ completed/failed
+     â†‘               |
+     â””â”€â”€ cancelled --+
 ```
 
 ### 5.2. Job Polling Pattern

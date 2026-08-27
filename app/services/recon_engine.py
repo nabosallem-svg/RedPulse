@@ -116,33 +116,16 @@ class ReconEngine:
         return open_ports
 
     async def notify_telegram(self, message: str) -> bool:
-        """Send a message to a Telegram chat via the Bot API.
-
-        Requires TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID to be set in config.
-        Returns True if the message was sent successfully.
-        """
-        token = settings.TELEGRAM_BOT_TOKEN
-        chat_id = settings.TELEGRAM_CHAT_ID
-
-        if not token or not chat_id:
-            logger.warning("Telegram bot token or chat ID not configured; skipping notification")
-            return False
-
-        import httpx
-
-        url = f"https://api.telegram.org/bot{token}/sendMessage"
-
+        """Optional Telegram plugin - delegates to notifications.telegram if available."""
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.post(
-                    url,
-                    json={"chat_id": chat_id, "text": message},
-                )
-                resp.raise_for_status()
-                logger.info(f"Telegram notification sent: {message[:80]}...")
-                return True
-        except Exception as e:  # pylint: disable=broad-except
-            logger.error(f"Failed to send Telegram notification: {e}")
+            from app.services.notifications.telegram import send_telegram_message
+
+            return await send_telegram_message(message)
+        except ImportError:
+            logger.debug("Telegram plugin not installed, skipping")
+            return False
+        except Exception as e:
+            logger.warning(f"Telegram plugin error (non-critical): {e}")
             return False
 
     async def run_recon_job(self, target: str, port_range: Optional[List[int]] = None) -> Dict[str, Any]:

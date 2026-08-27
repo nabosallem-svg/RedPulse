@@ -1,4 +1,4 @@
-"""ReconPilot - Security Module.
+﻿"""RedPulse - Security Module.
 
 Password hashing, JWT token creation/validation, and authentication utilities.
 """

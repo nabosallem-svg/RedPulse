@@ -1,4 +1,4 @@
-"""ReconPilot - Authentication Tests.
+﻿"""RedPulse - Authentication Tests.
 
 End-to-end tests for signup, login, token refresh, and protected routes.
 Uses SQLite in-memory for test database isolation.

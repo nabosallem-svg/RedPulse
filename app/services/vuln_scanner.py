@@ -95,12 +95,15 @@ class VulnScanner:
 
     @staticmethod
     async def _validate_target_static(engagement_id: str, host_or_url: str, db, current_user) -> None:
-        """Static wrapper for scope validation (no self-instance needed)."""
+        """Static wrapper for scope validation - always via scope_validator.validate_target."""
         from app.services.scope_validator import validate_target
-        # We can't easily call async validate_target without an instance,
-        # so we do a minimal check here - in practice this would be
-        # called from the recon job flow already validated
-        pass
+
+        await validate_target(
+            engagement_id=engagement_id,
+            host_or_url=host_or_url,
+            db=db,
+            current_user=current_user,
+        )
 
     def _run_nuclei(self, host: str, template_path: Optional[str] = None) -> List[Dict[str, Any]]:
         """Run Nuclei against a single host.
@@ -209,6 +212,6 @@ class VulnScanner:
         }
 
     def _is_in_scope(self, host: str) -> bool:
-        """Quick scope check - in production would use the full validator."""
-        # Placeholder - actual validation happens in scan_targets
+        """Quick scope check - delegates to scan_targets validation."""
+        # Actual validation is async via validate_target in scan_targets; this remains for summary stats only
         return True

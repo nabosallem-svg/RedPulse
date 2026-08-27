@@ -1,4 +1,4 @@
-"""ReconPilot - Notifications API Routes.
+﻿"""RedPulse - Notifications API Routes.
 
 Notification abstraction and delivery.
 """

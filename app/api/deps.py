@@ -1,4 +1,4 @@
-"""ReconPilot - API Dependencies.
+﻿"""RedPulse - API Dependencies.
 
 Dependency injection for database sessions and authentication.
 """
