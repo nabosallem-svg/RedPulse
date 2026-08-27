@@ -7,6 +7,8 @@ Provides:
 """
 
 import os
+import socket
+from urllib.parse import urlparse, urlunparse
 
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
@@ -16,6 +18,33 @@ from app.core.config import get_settings
 settings = get_settings()
 
 ASYNC_DATABASE_URL = settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql+asyncpg://")
+
+
+def _force_ipv4(url: str) -> str:
+    try:
+        parsed = urlparse(url)
+        if not parsed.hostname:
+            return url
+        infos = socket.getaddrinfo(
+            parsed.hostname, parsed.port or 5432, socket.AF_INET, socket.SOCK_STREAM
+        )
+        if not infos:
+            return url
+        ipv4 = infos[0][4][0]
+        port = parsed.port or 5432
+        if "@" in parsed.netloc:
+            userinfo, _, _ = parsed.netloc.rpartition("@")
+            new_netloc = f"{userinfo}@{ipv4}:{port}"
+        else:
+            new_netloc = f"{ipv4}:{port}"
+        return urlunparse(
+            (parsed.scheme, new_netloc, parsed.path, parsed.params, parsed.query, parsed.fragment)
+        )
+    except Exception:
+        return url
+
+
+ASYNC_DATABASE_URL = _force_ipv4(ASYNC_DATABASE_URL)
 
 engine = create_async_engine(
     ASYNC_DATABASE_URL,
