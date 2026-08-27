@@ -162,18 +162,9 @@ def create_app() -> FastAPI:
     # Global exception handler for ScopeViolation
     @app.exception_handler(ScopeViolation)
     async def scope_violation_handler(request: Request, exc: ScopeViolation):
-        """Handle ScopeViolation and return 403 Forbidden with detail message."""
         return JSONResponse(
             status_code=status.HTTP_403_FORBIDDEN,
             content={"detail": exc.detail},
         )
-
-    @app.middleware("http")
-    async def _debug_tb(request: Request, call_next):
-        try:
-            return await call_next(request)
-        except Exception as exc:
-            import traceback as _tb
-            return JSONResponse(status_code=500, content={"error": repr(exc), "tb": _tb.format_exc()})
 
     return app
