@@ -168,16 +168,4 @@ def create_app() -> FastAPI:
             content={"detail": exc.detail},
         )
 
-    @app.middleware("http")
-    async def _debug_traceback(request: Request, call_next):
-        try:
-            return await call_next(request)
-        except Exception as exc:
-            import traceback as _tb
-
-            return JSONResponse(
-                status_code=500,
-                content={"detail": repr(exc), "traceback": _tb.format_exc()},
-            )
-
     return app
