@@ -15,7 +15,7 @@ router = APIRouter(tags=["scope"])
 
 
 @router.post(
-    "/engagements/{engagement_id}/scope",
+    "/{engagement_id}/scope",
     status_code=status.HTTP_201_CREATED,
 )
 async def add_scope_rule(
@@ -97,7 +97,7 @@ async def add_scope_rule(
 
 
 @router.get(
-    "/engagements/{engagement_id}/scope",
+    "/{engagement_id}/scope",
 )
 async def list_scope_rules(
     engagement_id: str,
