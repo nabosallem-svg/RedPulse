@@ -5,12 +5,22 @@ Never commit .env to version control.
 """
 
 from typing import List, Optional
-from pydantic import Field, validator
-from pydantic_settings import BaseSettings
+
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     """Primary settings class loaded from environment."""
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        # Treat empty environment variables as unset so defaults apply.
+        # Vercel provisions env vars with empty values, which otherwise
+        # crashes pydantic_settings when decoding complex/list fields.
+        env_ignore_empty=True,
+    )
 
     # Database
     DATABASE_URL: str = Field(
@@ -57,11 +67,6 @@ class Settings(BaseSettings):
         default="json",
         env="LOG_FORMAT",
     )
-
-    class Config:
-        """Pydantic config."""
-        env_file = ".env"
-        env_file_encoding = "utf-8"
 
 
 # Global settings instance - loaded from .env or using defaults
