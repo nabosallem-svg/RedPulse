@@ -20,6 +20,7 @@ settings = get_settings()
 ASYNC_DATABASE_URL = settings.DATABASE_URL
 if ASYNC_DATABASE_URL.startswith("postgresql://"):
     ASYNC_DATABASE_URL = "postgresql+asyncpg://" + ASYNC_DATABASE_URL[len("postgresql://"):]
+ASYNC_DATABASE_URL = ASYNC_DATABASE_URL.replace("pgbouncer=true", "").replace("?&", "?").replace("&&", "&").rstrip("?&")
 
 
 def _force_ipv4(url: str) -> str:
