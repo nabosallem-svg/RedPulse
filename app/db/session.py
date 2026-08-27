@@ -7,6 +7,7 @@ Provides:
 """
 
 import os
+import socket
 
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
@@ -19,13 +20,18 @@ settings = get_settings()
 # echo=True logs SQL statements - useful for debugging, set to False in production
 ASYNC_DATABASE_URL = settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql+asyncpg://")
 
+# Force IPv4: Vercel's serverless network resolves some hosts (e.g. Supabase)
+# to IPv6 addresses it cannot route to, causing "Cannot assign requested
+# address" (EADDRNOTAVAIL) at connect time. Pinning AF_INET avoids that.
 engine = create_async_engine(
     ASYNC_DATABASE_URL,
     echo=settings.ENVIRONMENT == "development",
-    pool_size=20,
-    max_overflow=30,
+    pool_size=10,
+    max_overflow=20,
     pool_timeout=30,
     pool_recycle=3600,
+    pool_pre_ping=True,
+    connect_args={"family": socket.AF_INET},
 )
 
 # Create session factory
