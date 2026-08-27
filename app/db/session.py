@@ -17,7 +17,9 @@ from app.core.config import get_settings
 
 settings = get_settings()
 
-ASYNC_DATABASE_URL = settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql+asyncpg://")
+ASYNC_DATABASE_URL = settings.DATABASE_URL
+if ASYNC_DATABASE_URL.startswith("postgresql://"):
+    ASYNC_DATABASE_URL = "postgresql+asyncpg://" + ASYNC_DATABASE_URL[len("postgresql://"):]
 
 
 def _force_ipv4(url: str) -> str:
