@@ -1,2 +1,31 @@
+[project]
+name = "redpulse"
+version = "0.1.0"
+description = "RedPulse - Controlled Pentesting Platform"
+requires-python = ">=3.9"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "sqlalchemy[asyncio]",
+    "asyncpg",
+    "alembic",
+    "pydantic-settings",
+    "python-jose",
+    "passlib[bcrypt]",
+    "dnspython",
+    "redis",
+    "httpx",
+    "reportlab",
+    "jinja2",
+    "aiosqlite",
+    "psycopg2-binary",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+]
+
 [tool.vercel]
 entrypoint = "vercel_entry:app"
