@@ -268,6 +268,65 @@ class VulnScanner:
         key_string = "|".join(key_parts)
         return hashlib.sha256(key_string.encode()).hexdigest()[:16]
 
+    @staticmethod
+    def _classify_advanced_vuln(template_id: str, matched_at: str = "") -> Dict[str, Any]:
+        """Classify advanced high-impact vulnerability from Nuclei template ID.
+
+        Phase 8: Identifies RCE, SSRF cloud metadata, JWT, race condition,
+        mass assignment, and business logic bypass from template patterns.
+
+        Returns dict with: category, severity_boost, tags, description_hint
+        """
+        tid = template_id.lower()
+        result = {
+            "category": None,
+            "severity_boost": False,
+            "tags": [],
+            "description_hint": "",
+        }
+
+        # JWT Vulnerabilities — checked before RCE to avoid "bruteforce" → "rce" false match
+        if any(kw in tid for kw in ("jwt-none", "jwt-algorithm", "jwt-confusion", "jwt-signing", "jwt-secret")):
+            result["category"] = "jwt_vulnerability"
+            result["severity_boost"] = True
+            result["tags"] = ["jwt_attack", "critical_risk", "auth_bypass"]
+            result["description_hint"] = "JWT vulnerability allows authentication bypass or token forgery"
+
+        # RCE / Command Injection
+        elif any(kw in tid for kw in ("rce", "remote-code", "command-injection", "os-command", "code-injection")):
+            result["category"] = "rce"
+            result["severity_boost"] = True
+            result["tags"] = ["remote_code_execution", "critical_risk"]
+            result["description_hint"] = "Remote code execution allows arbitrary command execution on the server"
+
+        # SSRF Cloud Metadata
+        elif any(kw in tid for kw in ("cloud-metadata", "aws-metadata", "gcp-metadata", "azure-metadata", "imds")):
+            result["category"] = "ssrf_cloud_metadata"
+            result["severity_boost"] = True
+            result["tags"] = ["ssrf_cloud_metadata", "critical_risk", "data_exfiltration"]
+            result["description_hint"] = "SSRF to cloud metadata endpoint exposes instance credentials and configuration"
+
+        # Race Condition
+        elif any(kw in tid for kw in ("race-condition", "race")):
+            result["category"] = "race_condition"
+            result["tags"] = ["race_condition", "business_logic_flaw"]
+            result["description_hint"] = "Race condition allows inconsistent state through concurrent requests"
+
+        # Mass Assignment
+        elif any(kw in tid for kw in ("mass-assignment", "property-injection", "over-posting")):
+            result["category"] = "mass_assignment"
+            result["severity_boost"] = True
+            result["tags"] = ["mass_account_takeover", "privilege_escalation"]
+            result["description_hint"] = "Mass assignment allows injection of privileged fields"
+
+        # Business Logic Bypass
+        elif any(kw in tid for kw in ("business-logic-bypass", "logic-bypass", "negative-amount", "price-manipulation")):
+            result["category"] = "business_logic_bypass"
+            result["tags"] = ["business_logic_bypass", "business_logic_flaw"]
+            result["description_hint"] = "Business logic flaw allows bypassing intended workflow"
+
+        return result
+
     async def start_scan_job(
         self,
         targets: List[str],

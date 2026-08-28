@@ -376,16 +376,26 @@ class FindingSeverity(str, Enum):
 
 
 class FindingCategory(str, Enum):
-    """Finding category classification for triage."""
+    """Finding category classification for triage.
+
+    Phase 8: Added RCE, SSRF_CLOUD_METADATA, JWT_VULNERABILITY,
+    RACE_CONDITION, MASS_ASSIGNMENT, BUSINESS_LOGIC_BYPASS.
+    """
 
     ACCESS_CONTROL = "access_control"
     IDOR = "idor"
     AUTH_BYPASS = "auth_bypass"
     BUSINESS_LOGIC = "business_logic"
+    BUSINESS_LOGIC_BYPASS = "business_logic_bypass"
     SENSITIVE_DATA = "sensitive_data"
     XSS = "xss"
     SQLI = "sqli"
     SSRF = "ssrf"
+    SSRF_CLOUD_METADATA = "ssrf_cloud_metadata"
+    RCE = "rce"
+    JWT_VULNERABILITY = "jwt_vulnerability"
+    RACE_CONDITION = "race_condition"
+    MASS_ASSIGNMENT = "mass_assignment"
     FILE_INCLUSION = "file_inclusion"
     MISCONFIGURATION = "misconfiguration"
     EXPOSURE = "exposure"
@@ -395,7 +405,12 @@ class FindingCategory(str, Enum):
 
 
 class TriageTag(str, Enum):
-    """Triage tags for advanced finding classification."""
+    """Triage tags for advanced finding classification.
+
+    Phase 8: Added REMOTE_CODE_EXECUTION, SSRF_CLOUD_METADATA,
+    JWT_ATTACK, RACE_CONDITION, MASS_ACCOUNT_TAKEOVER,
+    BUSINESS_LOGIC_BYPASS.
+    """
 
     CRITICAL_RISK = "critical_risk"
     PRIVILEGE_ESCALATION = "privilege_escalation"
@@ -411,6 +426,13 @@ class TriageTag(str, Enum):
     CORS_MISCONFIG = "cors_misconfig"
     CSRF = "csrf"
     OPEN_REDIRECT = "open_redirect"
+    # Phase 8: Advanced high-impact tags
+    REMOTE_CODE_EXECUTION = "remote_code_execution"
+    SSRF_CLOUD_METADATA = "ssrf_cloud_metadata"
+    JWT_ATTACK = "jwt_attack"
+    RACE_CONDITION = "race_condition"
+    MASS_ACCOUNT_TAKEOVER = "mass_account_takeover"
+    BUSINESS_LOGIC_BYPASS = "business_logic_bypass"
 
 
 vuln_scan_status_enum = sa.Enum(VulnScanStatus)

