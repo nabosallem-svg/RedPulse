@@ -15,7 +15,7 @@ from app.core.config import get_settings
 from app.core.security import decode_token
 from app.db.session import async_session_factory, engine
 
-from app.db.models import User
+from app.db.models import User, Project
 from app.db.base import Base
 
 
@@ -93,3 +93,41 @@ async def get_current_user(
             detail=str(e),
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+
+async def require_project_access(
+    project_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """Dependency that verifies the current user owns the specified project.
+
+    Args:
+        project_id: The project UUID to check access for.
+        current_user: The authenticated user.
+        db: Database session.
+
+    Returns:
+        The current user if access is granted.
+
+    Raises:
+        HTTPException: 404 if project not found, 403 if not owner.
+    """
+    result = await db.execute(
+        select(Project).where(Project.id == project_id)
+    )
+    project = result.scalar_one_or_none()
+
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found",
+        )
+
+    if str(project.owner_id) != str(current_user.id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: you do not own this project",
+        )
+
+    return current_user

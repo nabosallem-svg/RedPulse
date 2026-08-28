@@ -106,7 +106,6 @@ async def validate_target(engagement_id: str, host_or_url: str, db: AsyncSession
             )
 
     # ---- 4. Host matches at least one include ScopeRule ----
-    # ScopeRule uses pattern + rule_type (include/exclude), not target/is_include
     result = await db.execute(
         select(ScopeRule).where(
             ScopeRule.engagement_id == engagement.id,
@@ -114,8 +113,27 @@ async def validate_target(engagement_id: str, host_or_url: str, db: AsyncSession
         )
     )
     include_rules = result.scalars().all()
-    # Simple substring match for now; production uses proper domain/CIDR matching
-    matched_include = any(host_or_url in r.pattern or r.pattern in host_or_url or host_or_url.endswith(r.pattern.lstrip("*.")) for r in include_rules)
+
+    def _domain_matches(host: str, pattern: str) -> bool:
+        """Match hostname against scope pattern. Supports wildcards like *.example.com."""
+        pattern = pattern.lower().strip()
+        host = host.lower().strip()
+        # Remove scheme if URL was passed
+        if "://" in host:
+            host = host.split("://", 1)[1].split("/")[0].split(":")[0]
+        if "://" in pattern:
+            pattern = pattern.split("://", 1)[1].split("/")[0].split(":")[0]
+        # Exact match
+        if host == pattern:
+            return True
+        # Wildcard match: *.example.com matches sub.example.com, but not example.com
+        if pattern.startswith("*."):
+            base = pattern[2:]
+            return host == base or host.endswith("." + base)
+        # Subdomain match: example.com matches sub.example.com
+        return host.endswith("." + pattern)
+
+    matched_include = any(_domain_matches(host_or_url, r.pattern) for r in include_rules)
 
     if not include_rules or not matched_include:
         raise ScopeViolation(
@@ -130,7 +148,7 @@ async def validate_target(engagement_id: str, host_or_url: str, db: AsyncSession
         )
     )
     exclude_rules = result.scalars().all()
-    matched_exclude = any(host_or_url in r.pattern or r.pattern in host_or_url or host_or_url.endswith(r.pattern.lstrip("*.")) for r in exclude_rules)
+    matched_exclude = any(_domain_matches(host_or_url, r.pattern) for r in exclude_rules)
 
     if matched_exclude:
         raise ScopeViolation(

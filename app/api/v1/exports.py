@@ -1,6 +1,6 @@
 ﻿"""RedPulse - Finding Export to GitHub/Jira.
 
-POST /api/v1/findings/{finding_id}/export-ticket
+POST /api/v1/projects/{project_id}/findings/{finding_id}/export-ticket
 """
 
 from typing import Literal
@@ -30,13 +30,15 @@ async def export_finding_ticket(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Export a finding to GitHub Issue or Jira Ticket (mock)."""
+    """Export a finding to GitHub Issue or Jira Ticket (mock).
+
+    Note: In production, this should verify finding ownership via project.
+    The finding_id is used to identify the finding type for demo purposes.
+    """
     if data.target not in ("github", "jira"):
         raise HTTPException(status_code=400, detail="target must be github or jira")
 
-    # In production, fetch real Finding and verify ownership via project.owner_id
-    # For now, create synthetic finding dict from finding_id
-    # Try to map template from finding_id prefix
+    # Derive template from finding_id for demo (real implementation queries Finding table)
     template = "sqli" if "sqli" in finding_id.lower() else ("xss" if "xss" in finding_id.lower() else ("cors" if "cors" in finding_id.lower() else "idor"))
     finding = {
         "id": finding_id,
@@ -48,11 +50,9 @@ async def export_finding_ticket(
         "compliance": map_finding_compliance({"template_id": template}),
     }
 
-    # Enrich with remediation snippet for tech stack
     snippet = get_snippet(template, data.tech_stack)
     finding["remediation_snippet"] = snippet
 
-    # Dispatch mock webhook
     try:
         result = dispatch_finding_webhook(finding, data.target, repo=data.repo, project=data.repo)
     except ValueError as e:

@@ -20,16 +20,7 @@ from app.db.models import User
 from app.api.deps import get_current_user, get_db
 from app.api.v1.recon import router as recon_router
 from app.api.v1.vuln import router as vuln_router
-
-# Custom exception for scope violations - returned as 403 Forbidden
-class ScopeViolation(Exception):
-    """Raised when a target is out of scope.
-
-    Caught globally in app/main.py and returned as 403 Forbidden.
-    Never a raw 500.
-    """
-    def __init__(self, detail: str):
-        self.detail = detail
+from app.services.scope_validator import ScopeViolation
 
 # Setup logging first
 setup_logging()
@@ -95,10 +86,9 @@ def create_app() -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=origins,
-        allow_origin_regex=r"https://.*\.vercel\.app$",
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "Accept"],
         expose_headers=["Content-Disposition"],
     )
 
