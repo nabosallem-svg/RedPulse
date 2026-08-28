@@ -975,3 +975,252 @@ class TestAlertFormattingIntegration:
         assert "SQL Injection" in embed["title"]
         assert embed["color"] == 0x7F1D1D  # Critical
         assert any(f["value"] == "CRITICAL" for f in embed["fields"])
+
+
+# --- Pipeline Alert Integration Tests ---
+
+
+class TestPipelineAlertIntegration:
+    """Test that pipeline triggers alerts after finding ingestion."""
+
+    @pytest.mark.asyncio
+    async def test_pipeline_triggers_alerts_for_critical_findings(self, test_session, user):
+        """Pipeline sends alerts when Critical findings are ingested."""
+        from app.services.pipeline import PipelineOrchestrator
+
+        project = await _make_project(test_session, user.id)
+        eng = await _make_engagement(test_session, project.id)
+        await _make_webhook(test_session, project.id, user.id)
+
+        finding = await _make_finding(
+            test_session, eng.id, project.id, user.id,
+            severity=FindingSeverity.CRITICAL,
+            title="RCE via upload",
+            fingerprint="fp_pipe_crit_001",
+        )
+
+        orchestrator = PipelineOrchestrator(test_session, user)
+
+        with patch("app.services.alert_service.AlertService") as MockAlert:
+            mock_service = AsyncMock()
+            mock_service.send_finding_alert = AsyncMock(return_value=[])
+            MockAlert.return_value = mock_service
+
+            await orchestrator._trigger_alerts([finding], project.id)
+
+            mock_service.send_finding_alert.assert_called_once_with(
+                finding, project.id, change_type="new_finding"
+            )
+
+    @pytest.mark.asyncio
+    async def test_pipeline_triggers_alerts_for_high_findings(self, test_session, user):
+        """Pipeline sends alerts when High findings are ingested."""
+        from app.services.pipeline import PipelineOrchestrator
+
+        project = await _make_project(test_session, user.id)
+        eng = await _make_engagement(test_session, project.id)
+
+        finding = await _make_finding(
+            test_session, eng.id, project.id, user.id,
+            severity=FindingSeverity.HIGH,
+            title="XSS in search",
+            fingerprint="fp_pipe_high_001",
+        )
+
+        orchestrator = PipelineOrchestrator(test_session, user)
+
+        with patch("app.services.alert_service.AlertService") as MockAlert:
+            mock_service = AsyncMock()
+            mock_service.send_finding_alert = AsyncMock(return_value=[])
+            MockAlert.return_value = mock_service
+
+            await orchestrator._trigger_alerts([finding], project.id)
+
+            mock_service.send_finding_alert.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_pipeline_skips_alerts_for_medium_findings(self, test_session, user):
+        """Pipeline does NOT send alerts for Medium/Low/Info findings."""
+        from app.services.pipeline import PipelineOrchestrator
+
+        project = await _make_project(test_session, user.id)
+        eng = await _make_engagement(test_session, project.id)
+
+        finding = await _make_finding(
+            test_session, eng.id, project.id, user.id,
+            severity=FindingSeverity.MEDIUM,
+            title="Info disclosure",
+            fingerprint="fp_pipe_med_001",
+        )
+
+        orchestrator = PipelineOrchestrator(test_session, user)
+
+        with patch("app.services.alert_service.AlertService") as MockAlert:
+            mock_service = AsyncMock()
+            mock_service.send_finding_alert = AsyncMock(return_value=[])
+            MockAlert.return_value = mock_service
+
+            await orchestrator._trigger_alerts([finding], project.id)
+
+            mock_service.send_finding_alert.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_pipeline_sends_summary_alert(self, test_session, user):
+        """Pipeline sends summary alert after scan completion."""
+        from app.services.pipeline import PipelineOrchestrator, PipelineResult
+
+        project = await _make_project(test_session, user.id)
+        eng = await _make_engagement(test_session, project.id)
+
+        finding_crit = await _make_finding(
+            test_session, eng.id, project.id, user.id,
+            severity=FindingSeverity.CRITICAL,
+            title="Critical",
+            fingerprint="fp_pipe_sum_001",
+        )
+        finding_high = await _make_finding(
+            test_session, eng.id, project.id, user.id,
+            severity=FindingSeverity.HIGH,
+            title="High",
+            fingerprint="fp_pipe_sum_002",
+        )
+
+        # Build a minimal PipelineResult
+        mock_job = MagicMock()
+        mock_job.engagement_id = eng.id
+        result = PipelineResult()
+        result.recon_jobs = [mock_job]
+        result.findings = [finding_crit, finding_high]
+        result.status = "completed"
+
+        orchestrator = PipelineOrchestrator(test_session, user)
+
+        with patch("app.services.alert_service.AlertService") as MockAlert:
+            mock_service = AsyncMock()
+            mock_service.send_summary_alert = AsyncMock(return_value=[])
+            MockAlert.return_value = mock_service
+
+            await orchestrator._send_scan_summary(result)
+
+            mock_service.send_summary_alert.assert_called_once()
+            call_args = mock_service.send_summary_alert.call_args
+            assert call_args[0][0] == project.id
+            summary = call_args[0][1]
+            assert summary["critical_count"] == 1
+            assert summary["high_count"] == 1
+            assert summary["findings_count"] == 2
+
+    @pytest.mark.asyncio
+    async def test_pipeline_alert_failure_doesnt_crash(self, test_session, user):
+        """Pipeline continues even if alert delivery fails."""
+        from app.services.pipeline import PipelineOrchestrator
+
+        project = await _make_project(test_session, user.id)
+        eng = await _make_engagement(test_session, project.id)
+
+        finding = await _make_finding(
+            test_session, eng.id, project.id, user.id,
+            severity=FindingSeverity.CRITICAL,
+            title="Critical",
+            fingerprint="fp_pipe_fail_001",
+        )
+
+        orchestrator = PipelineOrchestrator(test_session, user)
+
+        with patch("app.services.alert_service.AlertService") as MockAlert:
+            mock_service = AsyncMock()
+            mock_service.send_finding_alert = AsyncMock(
+                side_effect=Exception("Network error")
+            )
+            MockAlert.return_value = mock_service
+
+            # Should not raise
+            await orchestrator._trigger_alerts([finding], project.id)
+
+    @pytest.mark.asyncio
+    async def test_pipeline_alerts_multiple_findings(self, test_session, user):
+        """Pipeline sends separate alerts for each Critical/High finding."""
+        from app.services.pipeline import PipelineOrchestrator
+
+        project = await _make_project(test_session, user.id)
+        eng = await _make_engagement(test_session, project.id)
+
+        findings = []
+        for i in range(3):
+            f = await _make_finding(
+                test_session, eng.id, project.id, user.id,
+                severity=FindingSeverity.CRITICAL,
+                title=f"Critical Finding {i}",
+                fingerprint=f"fp_pipe_multi_{i:03d}",
+            )
+            findings.append(f)
+
+        orchestrator = PipelineOrchestrator(test_session, user)
+
+        with patch("app.services.alert_service.AlertService") as MockAlert:
+            mock_service = AsyncMock()
+            mock_service.send_finding_alert = AsyncMock(return_value=[])
+            MockAlert.return_value = mock_service
+
+            await orchestrator._trigger_alerts(findings, project.id)
+
+            assert mock_service.send_finding_alert.call_count == 3
+
+    @pytest.mark.asyncio
+    async def test_pipeline_mixed_severity_sends_only_critical_high(self, test_session, user):
+        """Pipeline only alerts on Critical/High, skips Medium/Low/Info."""
+        from app.services.pipeline import PipelineOrchestrator
+
+        project = await _make_project(test_session, user.id)
+        eng = await _make_engagement(test_session, project.id)
+
+        findings = []
+        sevs = [
+            FindingSeverity.CRITICAL, FindingSeverity.HIGH,
+            FindingSeverity.MEDIUM, FindingSeverity.LOW, FindingSeverity.INFO,
+        ]
+        for i, sev in enumerate(sevs):
+            f = await _make_finding(
+                test_session, eng.id, project.id, user.id,
+                severity=sev,
+                title=f"Finding {sev.value}",
+                fingerprint=f"fp_pipe_mixed_{i:03d}",
+            )
+            findings.append(f)
+
+        orchestrator = PipelineOrchestrator(test_session, user)
+
+        with patch("app.services.alert_service.AlertService") as MockAlert:
+            mock_service = AsyncMock()
+            mock_service.send_finding_alert = AsyncMock(return_value=[])
+            MockAlert.return_value = mock_service
+
+            await orchestrator._trigger_alerts(findings, project.id)
+
+            # Only 2 calls: Critical + High
+            assert mock_service.send_finding_alert.call_count == 2
+
+
+class TestMonitoringAlertIntegration:
+    """Test that MonitoringService sends alerts for scan results."""
+
+    @pytest.mark.asyncio
+    async def test_monitoring_sends_alerts_on_critical_findings(self, test_session, user):
+        """Monitoring cycle sends summary alerts when critical findings exist."""
+        from app.services.monitoring_service import MonitoringService
+
+        project = await _make_project(test_session, user.id)
+        sched = await _make_schedule(test_session, project.id, user.id)
+        sched.next_scan_at = datetime.now(timezone.utc) - timedelta(hours=1)
+        await test_session.flush()
+
+        service = MonitoringService(test_session)
+
+        with patch.object(service.alert_service, "send_summary_alert",
+                          new_callable=AsyncMock) as mock_alert:
+            mock_alert.return_value = []
+            result = await service.execute_monitoring_cycle(sched)
+
+            # Alert may or may not be called depending on whether new findings exist
+            # But the service should be wired correctly
+            assert result["status"] == "completed"

@@ -7,6 +7,9 @@ This is the core integration layer that connects Phase 2 (Recon) with Phase 3 (A
 
 Phase 5: Supports authenticated scanning via auth_headers / auth_cookies passed
 through the entire pipeline to VulnScanner and finding_ingester.
+
+Phase 7: After finding ingestion, triggers AlertService to notify configured
+webhooks (Telegram, Discord, custom) about new Critical/High findings.
 """
 
 import logging
@@ -265,6 +268,9 @@ class PipelineOrchestrator:
                     )
                     result.findings = findings
 
+                    # Phase 7: Trigger alerts for Critical/High findings
+                    await self._trigger_alerts(findings, project_id)
+
             # Update scan status
             scan.status = VulnScanStatus.COMPLETED
             scan.completed_at = datetime.now(timezone.utc)
@@ -285,7 +291,90 @@ class PipelineOrchestrator:
             logger.error(f"Nuclei scan failed: {e}")
 
         result.status = "completed" if not result.errors else "completed_with_errors"
+
+        # Phase 7: Send scan completion summary alert
+        if result.scan and result.findings:
+            await self._send_scan_summary(result)
+
         return result
+
+    async def _trigger_alerts(
+        self, findings: list[Finding], project_id: str
+    ) -> None:
+        """Trigger webhook alerts for Critical/High findings.
+
+        Each Critical/High finding sends an individual alert to all configured
+        webhooks for the project. Low/Medium/Info findings are silently skipped.
+        Failures are logged but never crash the pipeline.
+        """
+        try:
+            from app.services.alert_service import AlertService
+
+            alert_service = AlertService(self.db)
+            critical_high = [
+                f for f in findings
+                if f.severity and f.severity.value in ("critical", "high")
+            ]
+
+            if not critical_high:
+                return
+
+            logger.info(
+                f"Triggering alerts for {len(critical_high)} critical/high "
+                f"findings in project {project_id}"
+            )
+
+            for finding in critical_high:
+                try:
+                    await alert_service.send_finding_alert(
+                        finding, project_id, change_type="new_finding"
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to send alert for finding {finding.id}: {e}"
+                    )
+
+        except Exception as e:
+            logger.warning(f"AlertService unavailable (non-critical): {e}")
+
+    async def _send_scan_summary(self, result: "PipelineResult") -> None:
+        """Send a summary alert after scan completion.
+
+        Provides a high-level overview: total findings, critical/high counts,
+        and scan status. Only sent to webhooks with min_severity <= high.
+        """
+        try:
+            from app.services.alert_service import AlertService
+
+            alert_service = AlertService(self.db)
+
+            if not result.recon_jobs:
+                return
+
+            engagement_id = result.recon_jobs[0].engagement_id
+            eng_result = await self.db.execute(
+                select(Engagement).where(Engagement.id == engagement_id)
+            )
+            engagement = eng_result.scalar_one_or_none()
+            project_id = engagement.project_id if engagement else None
+
+            if not project_id:
+                return
+
+            severity_breakdown = _severity_breakdown(result.findings)
+
+            await alert_service.send_summary_alert(
+                project_id,
+                {
+                    "findings_count": len(result.findings),
+                    "critical_count": severity_breakdown.get("critical", 0),
+                    "high_count": severity_breakdown.get("high", 0),
+                    "scan_status": result.status,
+                    "scan_type": "pipeline",
+                },
+            )
+        except Exception as e:
+            logger.warning(f"Failed to send scan summary alert: {e}")
 
 
 def _severity_breakdown(findings: list[Finding]) -> dict:
