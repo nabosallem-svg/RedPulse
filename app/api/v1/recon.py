@@ -20,7 +20,7 @@ from app.services.worker import worker
 
 logger = logging.getLogger("redpulse.api.recon")
 
-router = APIRouter(prefix="/recon", tags=["recon"])
+router = APIRouter(tags=["recon"])
 
 
 async def _verify_engagement_access(
