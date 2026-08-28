@@ -1,7 +1,7 @@
 ﻿"use client";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { LayoutDashboard, FolderKanban, Target, Settings, LogOut, Shield, FileText, Activity } from "lucide-react";
+import { LayoutDashboard, FolderKanban, Target, Settings, LogOut, Shield, FileText, Activity, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { clearAuth } from "@/lib/api";
 
@@ -9,6 +9,7 @@ const nav = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/dashboard/projects", label: "Projects", icon: FolderKanban },
   { href: "/dashboard/engagements", label: "Engagements", icon: Target },
+  { href: "/dashboard/recon", label: "Recon", icon: Search },
   { href: "/dashboard/scans", label: "Scans", icon: Activity },
   { href: "/dashboard/reports", label: "Reports", icon: FileText },
   { href: "/dashboard/settings", label: "Settings", icon: Settings },

@@ -1,6 +1,7 @@
 ﻿"""SQLAlchemy database models for RedPulse.
 
-Models: User, Project, Engagement, Authorization, ScopeRule.
+Models: User, Project, Engagement, Authorization, ScopeRule, PlatformConnection,
+Asset, ReconJob, ReconResult.
 Enums are Python Enum classes mapped via SQLAlchemy Enum for DB-level enforcement.
 """
 
@@ -14,6 +15,9 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     Text,
+    Integer,
+    Float,
+    JSON,
     UniqueConstraint,
     ForeignKey,
 )
@@ -72,6 +76,42 @@ class RuleSource(str, Enum):
     BOUNTY_PLATFORM_SYNCED = "bounty_platform_synced"
 
 
+class ReconJobStatus(str, Enum):
+    """Recon job status enum values."""
+
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class ReconTool(str, Enum):
+    """Recon tool enum values."""
+
+    SUBFINDER = "subfinder"
+    HTTPX = "httpx"
+    NMAP = "nmap"
+
+
+class AssetType(str, Enum):
+    """Asset type enum values."""
+
+    DOMAIN = "domain"
+    SUBDOMAIN = "subdomain"
+    IP = "ip"
+    URL = "url"
+    SERVICE = "service"
+
+
+class ChangeType(str, Enum):
+    """Asset change detection enum."""
+
+    NEW = "new"
+    CHANGED = "changed"
+    REMOVED = "removed"
+
+
 # SQLAlchemy Enum types for DB-level constraint
 user_status_enum = sa.Enum(UserStatus)
 project_status_enum = sa.Enum(ProjectStatus)
@@ -79,6 +119,10 @@ engagement_status_enum = sa.Enum(EngagementStatus)
 authorization_method_enum = sa.Enum(AuthorizationMethod)
 rule_type_enum = sa.Enum(RuleType)
 rule_source_enum = sa.Enum(RuleSource)
+recon_job_status_enum = sa.Enum(ReconJobStatus)
+recon_tool_enum = sa.Enum(ReconTool)
+asset_type_enum = sa.Enum(AssetType)
+change_type_enum = sa.Enum(ChangeType)
 
 
 # ----- Models -----
@@ -147,6 +191,8 @@ class Engagement(Base):
         "Authorization", back_populates="engagement", uselist=False, cascade="all, delete-orphan"
     )
     scope_rules = relationship("ScopeRule", back_populates="engagement", cascade="all, delete-orphan")
+    assets = relationship("Asset", back_populates="engagement", cascade="all, delete-orphan")
+    recon_jobs = relationship("ReconJob", back_populates="engagement", cascade="all, delete-orphan")
 
 
 class Authorization(Base):
@@ -219,3 +265,78 @@ class PlatformConnection(Base):
 
     # Relationships
     user = relationship("User", back_populates="platform_connections")
+
+
+# ----- Recon Models -----
+
+
+class Asset(Base):
+    """Asset model - represents a discovered host, subdomain, IP, URL, or service."""
+
+    __tablename__ = "assets"
+    __table_args__ = (
+        UniqueConstraint("engagement_id", "value", "asset_type", name="uq_asset_per_engagement"),
+    )
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    engagement_id = Column(String(36), ForeignKey("engagements.id"), nullable=False, index=True)
+    asset_type = Column(asset_type_enum, nullable=False)
+    value = Column(String(500), nullable=False)  # hostname, IP, URL, or service identifier
+    port = Column(Integer, nullable=True)
+    protocol = Column(String(20), nullable=True)  # tcp, udp, http, https
+    service_name = Column(String(100), nullable=True)  # http, ssh, dns, etc.
+    technology = Column(String(200), nullable=True)  # nginx, Apache, etc.
+    http_status = Column(Integer, nullable=True)
+    http_title = Column(String(500), nullable=True)
+    ip_address = Column(String(45), nullable=True)  # IPv4 or IPv6
+    source_tool = Column(recon_tool_enum, nullable=False)
+    source_job_id = Column(String(36), ForeignKey("recon_jobs.id"), nullable=True)
+    first_seen = Column(DateTime, nullable=False, default=sa.func.now())
+    last_seen = Column(DateTime, nullable=False, default=sa.func.now())
+    created_at = Column(DateTime, nullable=False, default=sa.func.now())
+    updated_at = Column(DateTime, nullable=False, default=sa.func.now(), onupdate=sa.func.now())
+
+    # Relationships
+    engagement = relationship("Engagement", back_populates="assets")
+    recon_job = relationship("ReconJob", back_populates="assets")
+
+
+class ReconJob(Base):
+    """ReconJob model - tracks a recon job execution."""
+
+    __tablename__ = "recon_jobs"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    engagement_id = Column(String(36), ForeignKey("engagements.id"), nullable=False, index=True)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
+    tool = Column(recon_tool_enum, nullable=False)
+    target = Column(String(500), nullable=False)  # domain or URL to scan
+    status = Column(recon_job_status_enum, nullable=False, default=ReconJobStatus.PENDING)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    error_message = Column(Text, nullable=True)
+    result_summary = Column(JSON, nullable=True)  # stats: hosts_found, services_found, etc.
+    created_at = Column(DateTime, nullable=False, default=sa.func.now())
+    updated_at = Column(DateTime, nullable=False, default=sa.func.now(), onupdate=sa.func.now())
+
+    # Relationships
+    engagement = relationship("Engagement", back_populates="recon_jobs")
+    user = relationship("User")
+    assets = relationship("Asset", back_populates="recon_job", cascade="all, delete-orphan")
+    results = relationship("ReconResult", back_populates="recon_job", cascade="all, delete-orphan")
+
+
+class ReconResult(Base):
+    """ReconResult model - raw tool output for audit trail."""
+
+    __tablename__ = "recon_results"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    recon_job_id = Column(String(36), ForeignKey("recon_jobs.id"), nullable=False, index=True)
+    tool = Column(recon_tool_enum, nullable=False)
+    raw_output = Column(Text, nullable=True)  # full tool stdout/stderr
+    parsed_data = Column(JSON, nullable=True)  # structured parse result
+    created_at = Column(DateTime, nullable=False, default=sa.func.now())
+
+    # Relationships
+    recon_job = relationship("ReconJob", back_populates="results")

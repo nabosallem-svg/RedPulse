@@ -661,3 +661,58 @@ class PaginatedResponse(BaseModel):
     success: bool = True
     data: List[Any]
     meta: PaginationMeta
+
+
+# --- Recon Schemas ---
+
+
+class ReconJobCreate(BaseModel):
+    """Schema for creating a recon job."""
+    engagement_id: str = Field(..., max_length=36)
+    tool: str = Field(..., pattern="^(subfinder|httpx|nmap)$")
+    target: str = Field(..., max_length=500, description="Domain or URL to scan")
+
+
+class ReconJobSchema(BaseModel):
+    """Recon job response schema."""
+    id: str
+    engagement_id: str
+    user_id: str
+    tool: str
+    target: str
+    status: str
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    error_message: Optional[str] = None
+    result_summary: Optional[dict] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class AssetSchema(BaseModel):
+    """Asset response schema."""
+    id: str
+    engagement_id: str
+    asset_type: str
+    value: str
+    port: Optional[int] = None
+    protocol: Optional[str] = None
+    service_name: Optional[str] = None
+    technology: Optional[str] = None
+    http_status: Optional[int] = None
+    http_title: Optional[str] = None
+    ip_address: Optional[str] = None
+    source_tool: str
+    first_seen: datetime
+    last_seen: datetime
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ReconToolStatus(BaseModel):
+    """Tool availability status."""
+    tool: str
+    available: bool
+    version: Optional[str] = None

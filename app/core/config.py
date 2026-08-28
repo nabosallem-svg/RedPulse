@@ -68,6 +68,13 @@ class Settings(BaseSettings):
         env="LOG_FORMAT",
     )
 
+    # Recon tool configuration
+    SUBFINDER_BIN: str = Field(default="subfinder", env="SUBFINDER_BIN")
+    HTTPX_BIN: str = Field(default="httpx", env="HTTPX_BIN")
+    NMAP_BIN: str = Field(default="nmap", env="NMAP_BIN")
+    TOOL_TIMEOUT: int = Field(default=300, env="TOOL_TIMEOUT")  # seconds
+    TOOL_MAX_WORKERS: int = Field(default=4, env="TOOL_MAX_WORKERS")
+
 
 # Global settings instance - loaded from .env or using defaults
 settings = Settings()
