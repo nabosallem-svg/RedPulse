@@ -340,3 +340,266 @@ class ReconResult(Base):
 
     # Relationships
     recon_job = relationship("ReconJob", back_populates="results")
+
+
+# ----- Assessment & Finding Models -----
+
+
+class VulnScanStatus(str, Enum):
+    """Vulnerability scan status enum."""
+
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class FindingStatus(str, Enum):
+    """Finding status lifecycle enum."""
+
+    NEW = "new"
+    CONFIRMED = "confirmed"
+    FALSE_POSITIVE = "false_positive"
+    ACCEPTED = "accepted"
+    RESOLVED = "resolved"
+    REOPENED = "reopened"
+
+
+class FindingSeverity(str, Enum):
+    """Finding severity enum."""
+
+    CRITICAL = "critical"
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+    INFO = "info"
+
+
+class FindingCategory(str, Enum):
+    """Finding category classification for triage."""
+
+    ACCESS_CONTROL = "access_control"
+    IDOR = "idor"
+    AUTH_BYPASS = "auth_bypass"
+    BUSINESS_LOGIC = "business_logic"
+    SENSITIVE_DATA = "sensitive_data"
+    XSS = "xss"
+    SQLI = "sqli"
+    SSRF = "ssrf"
+    FILE_INCLUSION = "file_inclusion"
+    MISCONFIGURATION = "misconfiguration"
+    EXPOSURE = "exposure"
+    KNOWN_VULNERABILITIES = "known_vulnerabilities"
+    TAKEOVER_INDICATORS = "takeover_indicators"
+    TECHNOLOGY_SPECIFIC = "technology_specific"
+
+
+class TriageTag(str, Enum):
+    """Triage tags for advanced finding classification."""
+
+    CRITICAL_RISK = "critical_risk"
+    PRIVILEGE_ESCALATION = "privilege_escalation"
+    DATA_EXFILTRATION = "data_exfiltration"
+    SESSION_HIJACKING = "session_hijacking"
+    INSECURE_DIRECT_OBJECT = "insecure_direct_object"
+    BROKEN_ACCESS_CONTROL = "broken_access_control"
+    AUTH_BYPASS = "auth_bypass"
+    BUSINESS_LOGIC_FLAW = "business_logic_flaw"
+    SENSITIVE_SECRET = "sensitive_secret"
+    JAVASCRIPT_SECRETS = "javascript_secrets"
+    COOKIE_SECURITY = "cookie_security"
+    CORS_MISCONFIG = "cors_misconfig"
+    CSRF = "csrf"
+    OPEN_REDIRECT = "open_redirect"
+
+
+vuln_scan_status_enum = sa.Enum(VulnScanStatus)
+finding_status_enum = sa.Enum(FindingStatus)
+finding_severity_enum = sa.Enum(FindingSeverity)
+
+
+class VulnerabilityScan(Base):
+    """VulnerabilityScan model - tracks a Nuclei scan execution against assets.
+
+    Supports authenticated scanning via optional auth_headers / auth_cookies
+    fields that are passed through to Nuclei for testing behind login portals.
+    """
+
+    __tablename__ = "vulnerability_scans"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    engagement_id = Column(String(36), ForeignKey("engagements.id"), nullable=False, index=True)
+    asset_id = Column(String(36), ForeignKey("assets.id"), nullable=True, index=True)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
+    status = Column(vuln_scan_status_enum, nullable=False, default=VulnScanStatus.PENDING)
+    target = Column(String(500), nullable=False)
+    template_path = Column(String(500), nullable=True)
+
+    # Authenticated scanning credentials
+    auth_headers = Column(JSON, nullable=True, comment="Custom HTTP headers for auth (e.g. Authorization: Bearer ...)")
+    auth_cookies = Column(String(2000), nullable=True, comment="Session cookies for authenticated crawling")
+
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    error_message = Column(Text, nullable=True)
+    result_summary = Column(JSON, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=sa.func.now())
+    updated_at = Column(DateTime, nullable=False, default=sa.func.now(), onupdate=sa.func.now())
+
+    # Relationships
+    engagement = relationship("Engagement", back_populates="vulnerability_scans")
+    asset = relationship("Asset")
+    user = relationship("User")
+    findings = relationship("Finding", back_populates="scan", cascade="all, delete-orphan")
+
+
+class Finding(Base):
+    """Finding model - a security vulnerability discovered by Nuclei or other scanners.
+
+    Fingerprint-based deduplication: same (engagement_id, fingerprint) = same finding.
+    Status lifecycle: new -> confirmed -> accepted/resolved/false_positive -> reopened.
+    """
+
+    __tablename__ = "findings"
+    __table_args__ = (
+        UniqueConstraint("engagement_id", "fingerprint", name="uq_finding_per_engagement"),
+    )
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    engagement_id = Column(String(36), ForeignKey("engagements.id"), nullable=False, index=True)
+    project_id = Column(String(36), ForeignKey("projects.id"), nullable=False, index=True)
+    asset_id = Column(String(36), ForeignKey("assets.id"), nullable=True, index=True)
+    scan_id = Column(String(36), ForeignKey("vulnerability_scans.id"), nullable=True, index=True)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
+
+    # Vulnerability details
+    title = Column(String(500), nullable=False)
+    template_id = Column(String(200), nullable=True, comment="Nuclei template ID")
+    severity = Column(finding_severity_enum, nullable=False)
+    confidence = Column(Integer, nullable=False, default=0, comment="0-100")
+    category = Column(String(100), nullable=True, comment="exposure, misconfiguration, etc.")
+    description = Column(Text, nullable=True)
+    evidence = Column(Text, nullable=True)
+    endpoint = Column(String(500), nullable=True, comment="Vulnerable endpoint URL")
+    matched_at = Column(String(500), nullable=True, comment="Nuclei matched-at field")
+    impact = Column(Text, nullable=True)
+    remediation = Column(Text, nullable=True)
+
+    # Advanced triage fields (Phase 5)
+    triage_tags = Column(JSON, nullable=True, comment="Triage tags: critical_risk, privilege_escalation, etc.")
+    poc_curl = Column(Text, nullable=True, comment="Auto-generated PoC curl command for reproduction")
+    poc_steps = Column(Text, nullable=True, comment="Human-readable reproduction steps")
+    sensitive_params = Column(JSON, nullable=True, comment="Flagged object-ID params (user_id, account_id, etc.)")
+
+    # Dedup & lifecycle
+    fingerprint = Column(String(64), nullable=False, comment="Stable dedup fingerprint")
+    status = Column(finding_status_enum, nullable=False, default=FindingStatus.NEW)
+    first_seen = Column(DateTime, nullable=False, default=sa.func.now())
+    last_seen = Column(DateTime, nullable=False, default=sa.func.now())
+    created_at = Column(DateTime, nullable=False, default=sa.func.now())
+    updated_at = Column(DateTime, nullable=False, default=sa.func.now(), onupdate=sa.func.now())
+
+    # Raw data
+    raw_output = Column(Text, nullable=True)
+
+    # Relationships
+    engagement = relationship("Engagement", back_populates="findings")
+    project = relationship("Project")
+    asset = relationship("Asset")
+    scan = relationship("VulnerabilityScan", back_populates="findings")
+    user = relationship("User")
+
+
+# Add back_populates targets to Engagement
+Engagement.vulnerability_scans = relationship(
+    "VulnerabilityScan", back_populates="engagement", cascade="all, delete-orphan"
+)
+Engagement.findings = relationship(
+    "Finding", back_populates="engagement", cascade="all, delete-orphan"
+)
+
+
+# ----- Webhook & Monitoring Models (Phase 7) -----
+
+
+class WebhookConfig(Base):
+    """Webhook configuration for delivering alerts to external services.
+
+    Supports Telegram, Discord, and custom webhook endpoints.
+    Each webhook is scoped to a project and can filter by severity.
+    """
+
+    __tablename__ = "webhook_configs"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    project_id = Column(String(36), ForeignKey("projects.id"), nullable=False, index=True)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
+
+    # Webhook details
+    name = Column(String(255), nullable=False, comment="Human-readable name for this webhook")
+    webhook_type = Column(
+        String(50), nullable=False,
+        comment="telegram, discord, slack, custom",
+    )
+    url = Column(String(2000), nullable=False, comment="Webhook URL (Telegram bot API or Discord webhook URL)")
+
+    # Filtering
+    min_severity = Column(
+        String(20), nullable=False, default="high",
+        comment="Minimum severity to trigger alert: critical, high, medium, low, info",
+    )
+    enabled = Column(Boolean, nullable=False, default=True)
+
+    # Optional: custom headers for custom webhooks
+    headers = Column(JSON, nullable=True, comment="Extra HTTP headers for custom webhooks")
+
+    created_at = Column(DateTime, nullable=False, default=sa.func.now())
+    updated_at = Column(DateTime, nullable=False, default=sa.func.now(), onupdate=sa.func.now())
+
+    # Relationships
+    project = relationship("Project")
+    user = relationship("User")
+
+
+class MonitoringSchedule(Base):
+    """Scheduled monitoring configuration for continuous scanning.
+
+    Defines how often a project should be scanned, what tools to use,
+    and tracks the last scan time for scheduling.
+    """
+
+    __tablename__ = "monitoring_schedules"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    project_id = Column(String(36), ForeignKey("projects.id"), nullable=False, index=True)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
+
+    # Schedule details
+    name = Column(String(255), nullable=False, default="Continuous Monitoring")
+    frequency = Column(
+        String(50), nullable=False, default="daily",
+        comment="every_6h, daily, weekly, monthly",
+    )
+    profile = Column(
+        String(50), nullable=False, default="standard",
+        comment="quick, standard, deep",
+    )
+    enabled = Column(Boolean, nullable=False, default=True)
+
+    # Scope
+    targets = Column(JSON, nullable=True, comment="List of target domains/URLs to scan")
+    scan_all_assets = Column(Boolean, nullable=False, default=True, comment="Scan all discovered assets")
+
+    # State
+    last_scan_at = Column(DateTime, nullable=True)
+    next_scan_at = Column(DateTime, nullable=True)
+    last_scan_findings_count = Column(Integer, nullable=True)
+    last_scan_status = Column(String(20), nullable=True, comment="completed, failed, running")
+    consecutive_failures = Column(Integer, nullable=False, default=0)
+
+    created_at = Column(DateTime, nullable=False, default=sa.func.now())
+    updated_at = Column(DateTime, nullable=False, default=sa.func.now(), onupdate=sa.func.now())
+
+    # Relationships
+    project = relationship("Project")
+    user = relationship("User")

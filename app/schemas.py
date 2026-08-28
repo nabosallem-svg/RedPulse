@@ -280,99 +280,6 @@ class AssetTypeSummary(BaseModel):
     count: int
 
 
-# --- Finding Schemas ---
-
-
-class FindingBase(BaseModel):
-    """Base finding schema."""
-    title: str = Field(..., max_length=500)
-    category: str = Field(
-        ...,
-        max_length=100,
-        comment="exposure, misconfiguration, known_vulnerabilities, technology_specific, api_related, takeover_indicators",
-    )
-    severity: str = Field(..., max_length=20, comment="HIGH, MEDIUM, LOW")
-    confidence: int = Field(ge=0, le=100, description="0-100 percentage")
-    priority: int = Field(ge=0, le=100, description="Deterministic priority score")
-    endpoint: Optional[str] = Field(None, max_length=500, description="Vulnerable endpoint URL")
-    evidence: Optional[str] = Field(None, description="Raw evidence supporting the finding")
-    description: Optional[str] = Field(None, max_length=2000)
-    impact: Optional[str] = Field(None, max_length=2000, comment="Potential impact if exploited")
-    remediation: Optional[str] = Field(None, max_length=2000, comment="Remediation guidance")
-    fingerprint: str = Field(..., max_length=64, description="Stable fingerprint for deduplication")
-    asset_id: Optional[str] = Field(None, max_length=36, description="Associated asset ID")
-
-
-class FindingCreate(FindingBase):
-    """Schema for creating a finding."""
-    project_id: str = Field(..., max_length=255)
-    asset_id: Optional[str] = Field(None, max_length=36)
-
-
-class FindingUpdate(BaseModel):
-    """Schema for updating a finding."""
-    title: Optional[str] = Field(None, max_length=500)
-    severity: Optional[str] = Field(None, max_length=20, comment="HIGH, MEDIUM, LOW")
-    confidence: Optional[int] = Field(None, ge=0, le=100)
-    priority: Optional[int] = Field(None, ge=0, le=100)
-    endpoint: Optional[str] = Field(None, max_length=500)
-    evidence: Optional[str] = Field(None)
-    description: Optional[str] = Field(None, max_length=2000)
-    impact: Optional[str] = Field(None, max_length=2000)
-    remediation: Optional[str] = Field(None, max_length=2000)
-    status: Optional[str] = Field(None, comment="new, confirmed, false_positive, accepted, resolved, reopened")
-
-
-class FindingDB(FindingBase):
-    """Finding as stored in database."""
-    id: str
-    project_id: str
-    asset_id: Optional[str]
-    first_seen: datetime
-    last_seen: datetime
-    status: str
-    
-    model_config = {"from_attributes": True}
-
-
-class FindingSummary(BaseModel):
-    """Summary view for dashboard."""
-    id: str
-    title: str
-    severity: str
-    confidence: int
-    priority: int
-    status: str
-    asset_hostname: str
-    first_seen: datetime
-    last_seen: datetime
-
-
-# Finding status enum
-class FindingStatus(str):
-    NEW = "new"
-    CONFIRMED = "confirmed"
-    FALSE_POSITIVE = "false_positive"
-    ACCEPTED = "accepted"
-    RESOLVED = "resolved"
-    REOPENED = "reopened"
-
-
-# --- Finding Deduplication ---
-
-
-class FingerprintRequest(BaseModel):
-    """Request to compute or check a finding fingerprint."""
-    project_id: str = Field(..., max_length=255)
-    asset_id: Optional[str] = Field(None, max_length=36)
-    template_id: Optional[str] = Field(None, max_length=100)
-    endpoint: Optional[str] = Field(None, max_length=500)
-    evidence: Optional[str] = Field(None, max_length=2000)
-
-
-# --- Correlation Engine ---
-
-
 class CorrelationGroup(BaseModel):
     """Group of related findings."""
     root_finding_id: str
@@ -673,6 +580,19 @@ class ReconJobCreate(BaseModel):
     target: str = Field(..., max_length=500, description="Domain or URL to scan")
 
 
+# --- Vulnerability Scan Schemas ---
+
+
+class VulnScanCreate(BaseModel):
+    """Schema for creating a vulnerability scan."""
+    engagement_id: str = Field(..., max_length=36)
+    targets: List[str] = Field(..., min_length=1, description="List of hosts/URLs to scan")
+    template_path: Optional[str] = Field(None, max_length=500)
+    # Authenticated scanning
+    auth_headers: Optional[Dict[str, str]] = Field(None, description="Custom HTTP headers for auth (e.g. {Authorization: Bearer ...})")
+    auth_cookies: Optional[str] = Field(None, max_length=2000, description="Session cookies for authenticated crawling")
+
+
 class ReconJobSchema(BaseModel):
     """Recon job response schema."""
     id: str
@@ -688,6 +608,114 @@ class ReconJobSchema(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class VulnScanSchema(BaseModel):
+    """Vulnerability scan response schema."""
+    id: str
+    engagement_id: str
+    asset_id: Optional[str] = None
+    user_id: str
+    status: str
+    target: str
+    template_path: Optional[str] = None
+    auth_headers: Optional[Dict[str, str]] = None
+    auth_cookies: Optional[str] = None
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    error_message: Optional[str] = None
+    result_summary: Optional[dict] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+# --- Finding Schemas (new model) ---
+
+
+class FindingCreate(BaseModel):
+    """Schema for creating a finding from scanner output."""
+    engagement_id: str = Field(..., max_length=36)
+    project_id: str = Field(..., max_length=36)
+    asset_id: Optional[str] = Field(None, max_length=36)
+    scan_id: Optional[str] = Field(None, max_length=36)
+    title: str = Field(..., max_length=500)
+    template_id: Optional[str] = Field(None, max_length=200)
+    severity: str = Field(..., max_length=20)
+    confidence: int = Field(ge=0, le=100, default=0)
+    category: Optional[str] = Field(None, max_length=100)
+    description: Optional[str] = None
+    evidence: Optional[str] = None
+    endpoint: Optional[str] = Field(None, max_length=500)
+    matched_at: Optional[str] = Field(None, max_length=500)
+    impact: Optional[str] = None
+    remediation: Optional[str] = None
+    fingerprint: Optional[str] = Field(None, max_length=64)
+    raw_output: Optional[str] = None
+
+
+class FindingSchema(BaseModel):
+    """Finding response schema."""
+    id: str
+    engagement_id: str
+    project_id: str
+    asset_id: Optional[str] = None
+    scan_id: Optional[str] = None
+    user_id: str
+    title: str
+    template_id: Optional[str] = None
+    severity: str
+    confidence: int
+    category: Optional[str] = None
+    description: Optional[str] = None
+    evidence: Optional[str] = None
+    endpoint: Optional[str] = None
+    matched_at: Optional[str] = None
+    impact: Optional[str] = None
+    remediation: Optional[str] = None
+    # Phase 5 triage fields
+    triage_tags: Optional[List[str]] = None
+    poc_curl: Optional[str] = None
+    poc_steps: Optional[str] = None
+    sensitive_params: Optional[List[str]] = None
+    fingerprint: str
+    status: str
+    first_seen: datetime
+    last_seen: datetime
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class PipelineRunRequest(BaseModel):
+    """Request to run the full recon-to-assessment pipeline."""
+    engagement_id: str = Field(..., max_length=36)
+    target: str = Field(..., max_length=500, description="Root domain to scan")
+    recon_tools: List[str] = Field(
+        default=["subfinder"],
+        description="Recon tools to run in sequence",
+    )
+    run_assessment: bool = Field(
+        default=True,
+        description="Whether to run Nuclei assessment after recon",
+    )
+    template_path: Optional[str] = Field(None, max_length=500)
+    # Authenticated scanning (Phase 5)
+    auth_headers: Optional[Dict[str, str]] = Field(None, description="Custom HTTP headers for authenticated scanning")
+    auth_cookies: Optional[str] = Field(None, max_length=2000, description="Session cookies for authenticated crawling")
+
+
+class PipelineResultSchema(BaseModel):
+    """Result of a full pipeline execution."""
+    engagement_id: Optional[str] = None
+    recon_jobs: List[ReconJobSchema] = []
+    assets_found: int = 0
+    scan_id: Optional[str] = None
+    findings_count: int = 0
+    findings: List[FindingSchema] = []
+    errors: List[str] = []
+    status: str = "completed"
+    triage_summary: Optional[dict] = Field(None, description="Triage tag counts and high-sev summary")
 
 
 class AssetSchema(BaseModel):
@@ -716,3 +744,101 @@ class ReconToolStatus(BaseModel):
     tool: str
     available: bool
     version: Optional[str] = None
+
+
+# --- Phase 7: Webhook Schemas ---
+
+
+class WebhookConfigCreate(BaseModel):
+    """Schema for creating a webhook configuration."""
+    name: str = Field(..., max_length=255, description="Human-readable webhook name")
+    webhook_type: str = Field(..., pattern="^(telegram|discord|slack|custom)$")
+    url: str = Field(..., max_length=2000, description="Webhook URL")
+    min_severity: Optional[str] = Field("high", pattern="^(critical|high|medium|low|info)$")
+    enabled: Optional[bool] = True
+    headers: Optional[Dict[str, str]] = None
+
+
+class WebhookConfigUpdate(BaseModel):
+    """Schema for updating a webhook configuration."""
+    name: Optional[str] = Field(None, max_length=255)
+    url: Optional[str] = Field(None, max_length=2000)
+    min_severity: Optional[str] = Field(None, pattern="^(critical|high|medium|low|info)$")
+    enabled: Optional[bool] = None
+    headers: Optional[Dict[str, str]] = None
+
+
+class WebhookConfigDB(BaseModel):
+    """Webhook configuration as stored in database."""
+    id: str
+    project_id: str
+    user_id: str
+    name: str
+    webhook_type: str
+    url: str
+    min_severity: str
+    enabled: bool
+    headers: Optional[Dict[str, str]] = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+# --- Phase 7: Monitoring Schedule Schemas ---
+
+
+class MonitoringScheduleCreate(BaseModel):
+    """Schema for creating a monitoring schedule."""
+    name: Optional[str] = Field("Continuous Monitoring", max_length=255)
+    frequency: Optional[str] = Field("daily", pattern="^(every_6h|daily|weekly|monthly)$")
+    profile: Optional[str] = Field("standard", pattern="^(quick|standard|deep)$")
+    targets: Optional[List[str]] = None
+    scan_all_assets: Optional[bool] = True
+
+
+class MonitoringScheduleUpdate(BaseModel):
+    """Schema for updating a monitoring schedule."""
+    name: Optional[str] = Field(None, max_length=255)
+    frequency: Optional[str] = Field(None, pattern="^(every_6h|daily|weekly|monthly)$")
+    profile: Optional[str] = Field(None, pattern="^(quick|standard|deep)$")
+    targets: Optional[List[str]] = None
+    scan_all_assets: Optional[bool] = None
+    enabled: Optional[bool] = None
+
+
+class MonitoringScheduleDB(BaseModel):
+    """Monitoring schedule as stored in database."""
+    id: str
+    project_id: str
+    user_id: str
+    name: str
+    frequency: str
+    profile: str
+    enabled: bool
+    targets: Optional[List[str]] = None
+    scan_all_assets: bool
+    last_scan_at: Optional[datetime] = None
+    next_scan_at: Optional[datetime] = None
+    last_scan_findings_count: Optional[int] = None
+    last_scan_status: Optional[str] = None
+    consecutive_failures: int
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class MonitoringCycleResult(BaseModel):
+    """Result of a monitoring cycle execution."""
+    schedule_id: str
+    project_id: str
+    status: str
+    new_assets: int = 0
+    removed_assets: int = 0
+    new_findings: int = 0
+    critical_alerts: int = 0
+    high_alerts: int = 0
+    errors: List[str] = []
+
+    model_config = {"from_attributes": True}

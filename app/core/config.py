@@ -75,6 +75,11 @@ class Settings(BaseSettings):
     TOOL_TIMEOUT: int = Field(default=300, env="TOOL_TIMEOUT")  # seconds
     TOOL_MAX_WORKERS: int = Field(default=4, env="TOOL_MAX_WORKERS")
 
+    # Scanner configuration
+    NUCLEI_BIN: str = Field(default="nuclei", env="NUCLEI_BIN")
+    SCANNER_TIMEOUT: int = Field(default=60, env="SCANNER_TIMEOUT")  # seconds
+    SCANNER_MAX_WORKERS: int = Field(default=4, env="SCANNER_MAX_WORKERS")
+
 
 # Global settings instance - loaded from .env or using defaults
 settings = Settings()

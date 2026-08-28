@@ -129,6 +129,10 @@ def create_app() -> FastAPI:
 
     app.include_router(vuln_router, prefix="/api/v1/vuln", tags=["vulnerability"])
 
+    from app.api.v1.pipeline import router as pipeline_router
+
+    app.include_router(pipeline_router, prefix="/api/v1/pipeline", tags=["pipeline"])
+
     from app.api.v1.pentest import router as pentest_router
 
     app.include_router(pentest_router, prefix="/api/v1/projects", tags=["pentest"])
@@ -148,6 +152,14 @@ def create_app() -> FastAPI:
     from app.api.v1.bounty_export import router as bounty_router
 
     app.include_router(bounty_router, prefix="/api/v1/projects", tags=["bounty"])
+
+    from app.api.v1.reporting import router as reporting_router
+
+    app.include_router(reporting_router, prefix="/api/v1/reports", tags=["reports"])
+
+    from app.api.v1.webhooks import router as webhooks_router
+
+    app.include_router(webhooks_router, prefix="/api/v1", tags=["webhooks", "monitoring"])
 
     # Temporary me endpoint for auth testing
     @app.get("/api/v1/me", tags=["auth"])
