@@ -5,7 +5,7 @@ Handles user signup, login, and token refresh.
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 
 from app.api.deps import get_current_user, get_db
@@ -24,7 +24,7 @@ class LoginSchema(BaseModel):
 
 
 class RefreshSchema(BaseModel):
-    refresh_token: str = Field(..., description="The refresh JWT token")
+    refresh_token: str | None = Field(None, description="The refresh JWT token (optional if sent as httpOnly cookie)")
 
 
 router = APIRouter(tags=["auth"])
@@ -176,23 +176,22 @@ async def login(
 
 @router.post("/refresh")
 async def refresh(
-    data: RefreshSchema,
+    request: Request,
     response: Response,
+    data: RefreshSchema,
     db = Depends(get_db),
 ):
     """Refresh an access token using a refresh token.
 
-    Args:
-        data: Refresh data
-        db: Database session
-
-    Returns:
-        New access token if refresh token is valid
-
-    Raises:
-        HTTPException: 401 if refresh token is invalid or expired
+    Accepts refresh_token via JSON body or httpOnly cookie (for frontend with withCredentials).
+    Falls back to request.cookies.get('refresh_token') when body is empty — pure cookie flow.
     """
-    new_access_token = await refresh_access_token(refresh_token=data.refresh_token)
+    # Try body first, then httpOnly cookie fallback (frontend with withCredentials:true sends it automatically)
+    token = data.refresh_token
+    if not token:
+        token = request.cookies.get("refresh_token")
+
+    new_access_token = await refresh_access_token(refresh_token=token or "")
 
     if new_access_token is None:
         raise HTTPException(

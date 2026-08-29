@@ -138,13 +138,9 @@ async def retest_finding(finding_id: str, db: AsyncSession, current_user: User) 
         if orm is not None:
             try:
                 orm.status = "resolved"  # DB uses lowercase
-                # Also try to create FindingEvent if model exists
-                try:
-                    from app.models import FindingEvent  # type: ignore
-                    from app.db.models import FindingEvent as DbEvent  # fallback
-                    EventCls = DbEvent
-                except Exception:
-                    EventCls = None
+                # FindingEvent is legacy; current async model uses AuditLog/RetestJob for history
+                # No FindingEvent table in app/db/models.py — skip event creation (handled via AuditService)
+                EventCls = None
                 if EventCls:
                     evt = EventCls(finding_id=orm.id, event_type="resolved", notes="Verified fix via retest", changed_by=current_user.id)
                     db.add(evt)

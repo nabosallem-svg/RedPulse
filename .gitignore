@@ -16,3 +16,4 @@ RUN.bat
 demo.db
 *.db
 openapi.json
+backups/
