@@ -662,9 +662,40 @@ class TriageTag(str, Enum):
     BUSINESS_LOGIC_BYPASS = "business_logic_bypass"
 
 
+class TriageDecision(str, Enum):
+    """Triage decision enum - analyst verdict on a finding."""
+
+    FALSE_POSITIVE = "false_positive"
+    TRUE_POSITIVE = "true_positive"
+    NEEDS_REVIEW = "needs_review"
+    CONFIRMED = "confirmed"
+    ACCEPTED_RISK = "accepted_risk"
+
+
+class RetestStatus(str, Enum):
+    """Retest job status."""
+
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class RetestResult(str, Enum):
+    """Retest verification result."""
+
+    FIXED = "fixed"
+    STILL_VULNERABLE = "still_vulnerable"
+    INCONCLUSIVE = "inconclusive"
+
+
 vuln_scan_status_enum = sa.Enum(VulnScanStatus)
 finding_status_enum = sa.Enum(FindingStatus)
 finding_severity_enum = sa.Enum(FindingSeverity)
+triage_decision_enum = sa.Enum(TriageDecision)
+retest_status_enum = sa.Enum(RetestStatus)
+retest_result_enum = sa.Enum(RetestResult)
 
 
 class VulnerabilityScan(Base):
@@ -958,3 +989,108 @@ class AuditLog(Base):
     api_key = relationship("ApiKey")
     workspace = relationship("Workspace")
     project = relationship("Project")
+
+
+# ----- Phase 11-12: Triage & Retest (False Positive Workflow + Retest) -----
+
+
+class TriageFeedback(Base):
+    """Analyst triage feedback - feeds AI layer to reduce false positives.
+
+    Stores human verdict vs AI suggestion for continuous learning.
+    Each finding can have multiple feedback entries (e.g., re-triage).
+    """
+
+    __tablename__ = "triage_feedback"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    finding_id = Column(String(36), ForeignKey("findings.id"), nullable=False, index=True)
+    project_id = Column(String(36), ForeignKey("projects.id"), nullable=False, index=True)
+    workspace_id = Column(String(36), ForeignKey("workspaces.id"), nullable=True, index=True)
+
+    analyst_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    decision = Column(triage_decision_enum, nullable=False)
+    reason = Column(Text, nullable=True, comment="Analyst justification")
+    evidence = Column(Text, nullable=True, comment="Supporting evidence URL or snippet")
+
+    # AI suggestion snapshot at triage time (for learning)
+    ai_prediction = Column(String(50), nullable=True, comment="AI's prediction: false_positive / true_positive")
+    ai_confidence = Column(Float, nullable=True, comment="AI confidence 0.0-1.0")
+    ai_reasoning = Column(Text, nullable=True, comment="AI reasoning text")
+
+    # Learning flags
+    ai_was_correct = Column(Boolean, nullable=True, comment="Whether AI matched analyst decision")
+    feedback_weight = Column(Float, nullable=False, default=1.0, comment="Weight for training (higher for high-severity)")
+
+    created_at = Column(DateTime, nullable=False, default=sa.func.now(), index=True)
+    updated_at = Column(DateTime, nullable=False, default=sa.func.now(), onupdate=sa.func.now())
+
+    # Relationships
+    finding = relationship("Finding")
+    project = relationship("Project")
+    workspace = relationship("Workspace")
+    analyst = relationship("User")
+
+
+class RetestJob(Base):
+    """Retest workflow - verifies a finding is fixed via targeted micro-scan."""
+
+    __tablename__ = "retest_jobs"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    finding_id = Column(String(36), ForeignKey("findings.id"), nullable=False, index=True)
+    project_id = Column(String(36), ForeignKey("projects.id"), nullable=False, index=True)
+    workspace_id = Column(String(36), ForeignKey("workspaces.id"), nullable=True, index=True)
+    engagement_id = Column(String(36), ForeignKey("engagements.id"), nullable=True, index=True)
+
+    requested_by = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    status = Column(retest_status_enum, nullable=False, default=RetestStatus.PENDING)
+    result = Column(retest_result_enum, nullable=True)
+
+    # Snapshot of original finding at retest creation (for comparison)
+    original_evidence = Column(Text, nullable=True)
+    original_endpoint = Column(String(500), nullable=True)
+
+    # Verification output
+    evidence = Column(Text, nullable=True, comment="New evidence / micro-scan output")
+    verified_at = Column(DateTime, nullable=True)
+    worker_id = Column(String(100), nullable=True)
+    retry_count = Column(Integer, nullable=False, default=0)
+    error_message = Column(Text, nullable=True)
+
+    # Auto-resolution flag
+    auto_resolved = Column(Boolean, nullable=False, default=False, comment="Whether finding was auto-marked resolved on FIXED")
+
+    created_at = Column(DateTime, nullable=False, default=sa.func.now(), index=True)
+    updated_at = Column(DateTime, nullable=False, default=sa.func.now(), onupdate=sa.func.now())
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+
+    # Relationships
+    finding = relationship("Finding")
+    project = relationship("Project")
+    workspace = relationship("Workspace")
+    requester = relationship("User")
+
+
+# ----- Phase 11-12: Observability - Worker Health -----
+
+
+class WorkerHealth(Base):
+    """Worker heartbeat / health for observability - tracks Celery workers and queues."""
+
+    __tablename__ = "worker_health"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    worker_name = Column(String(255), nullable=False, index=True, unique=True)
+    queue = Column(String(100), nullable=False, default="default")
+    status = Column(String(20), nullable=False, default="healthy", comment="healthy, degraded, down, crashed")
+    last_heartbeat = Column(DateTime, nullable=False, default=sa.func.now(), index=True)
+    jobs_processed = Column(Integer, nullable=False, default=0)
+    jobs_failed = Column(Integer, nullable=False, default=0)
+    consecutive_failures = Column(Integer, nullable=False, default=0)
+    error_message = Column(Text, nullable=True)
+    metadata_json = Column(JSON, nullable=True, comment="Extra metrics: queue_length, memory, etc.")
+
+    created_at = Column(DateTime, nullable=False, default=sa.func.now())
+    updated_at = Column(DateTime, nullable=False, default=sa.func.now(), onupdate=sa.func.now())

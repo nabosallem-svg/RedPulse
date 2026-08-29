@@ -198,6 +198,25 @@ def create_app() -> FastAPI:
 
     app.include_router(public_api_router, prefix="/api/v1/public", tags=["public-api"])
 
+    # Phase 11-12: Triage (False Positive workflow feeding AI) + Retest
+    from app.api.v1.triage import router as triage_router
+
+    app.include_router(triage_router, prefix="/api/v1", tags=["triage"])
+
+    from app.api.v1.retests import router as retests_router
+
+    app.include_router(retests_router, prefix="/api/v1/retests", tags=["retest"])
+
+    # Observability: queue health, worker crashes
+    from app.api.v1.observability import router as observability_router
+
+    app.include_router(observability_router, tags=["observability"])
+
+    # Backup & DR
+    from app.api.v1.backup import router as backup_router
+
+    app.include_router(backup_router, prefix="/api/v1", tags=["backup"])
+
     # Temporary me endpoint for auth testing
     @app.get("/api/v1/me", tags=["auth"])
     async def get_me(current_user: User = Depends(get_current_user)) -> dict:

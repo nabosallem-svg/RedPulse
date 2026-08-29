@@ -60,11 +60,13 @@ COPY --from=builder /root/.local /home/appuser/.local
 COPY alembic.ini ./alembic.ini
 COPY alembic ./alembic
 COPY app ./app
+COPY scripts ./scripts
 
-# Create non-root user with explicit UID
+# Create non-root user with explicit UID and backup dir with correct perms
 RUN groupadd -g 1000 appuser \
     && useradd -u 1000 -g appuser -m -s /bin/false appuser \
-    && chown -R appuser:appuser /app
+    && mkdir -p /backups /app/backups \
+    && chown -R appuser:appuser /app /backups
 
 USER appuser
 

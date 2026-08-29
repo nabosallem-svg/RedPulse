@@ -110,11 +110,118 @@ jobs:
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
+  # ==================== Compose Validation ====================
+  compose-validate:
+    name: Compose Validate
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate docker-compose config
+        run: |
+          docker compose version
+          docker compose config -q
+          echo "docker-compose config OK"
+          docker compose --profile prod config -q
+          echo "docker-compose prod profile OK"
+      - name: Check backup scripts executable
+        run: |
+          test -f scripts/backup.sh && test -x scripts/backup.sh || chmod +x scripts/backup.sh
+          test -f scripts/restore.sh && test -x scripts/restore.sh || chmod +x scripts/restore.sh
+          sh -n scripts/backup.sh && sh -n scripts/restore.sh
+          echo "backup scripts syntax OK"
+
+  # ==================== Backup & DR Test ====================
+  backup-test:
+    name: Backup & DR Test
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install deps
+        run: pip install -r requirements.txt
+      - name: Test backup service (dummy)
+        run: |
+          python -c "import asyncio; from app.services.backup_service import BackupService; from pathlib import Path; import tempfile; tmp=Path(tempfile.mkdtemp()); meta=asyncio.run(BackupService.create_backup(backup_dir=tmp)); print(meta); assert Path(meta['path']).exists(); v=asyncio.run(BackupService.verify_backup(meta['path'])); assert v['valid']; print('backup verify OK'); lst=BackupService.list_backups(tmp); assert len(lst)==1; print('list OK'); clean=BackupService.cleanup_old_backups(tmp, retention_days=0, max_count=0); print(clean)"
+          echo "Backup & DR service OK"
+      - name: Test DR runbook endpoint
+        run: |
+          python -c "from app.services.backup_service import BackupService; rb=BackupService.get_dr_runbook(); assert 'rto' in rb; assert 'steps_restore' in rb; print(rb)"
+
+  # ==================== Observability Test ====================
+  observability-test:
+    name: Observability Test
+    runs-on: ubuntu-latest
+    needs: test
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: ${{ env.POSTGRES_DB }}
+          POSTGRES_USER: ${{ env.POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ env.POSTGRES_PASSWORD }}
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U RedPulse -d RedPulse"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install deps
+        run: pip install -r requirements.txt
+      - name: Run observability checks (offline)
+        run: |
+          python -c "
+          import asyncio
+          from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+          from sqlalchemy.orm import sessionmaker
+          from app.db.base import Base
+          async def main():
+              engine = create_async_engine('sqlite+aiosqlite:///:memory:')
+              async with engine.begin() as conn:
+                  await conn.run_sync(Base.metadata.create_all)
+              factory = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+              async with factory() as session:
+                  from app.services.observability_service import ObservabilityService
+                  dbh = await ObservabilityService.check_db(session)
+                  assert dbh['reachable']
+                  print('db health OK', dbh)
+                  await ObservabilityService.heartbeat(session, 'test-worker', 'scans', 'healthy', 10, 0)
+                  workers = await ObservabilityService.get_worker_health_db(session)
+                  assert len(workers)==1
+                  print('worker heartbeat OK', workers)
+                  health = await ObservabilityService.get_system_health(session)
+                  assert 'overall' in health
+                  print('system health OK', health['overall'])
+              await engine.dispose()
+          asyncio.run(main())
+          "
+          echo "Observability OK"
+
   # ==================== Security Scan ====================
   security:
     name: Security Scan
     runs-on: ubuntu-latest
-    needs: test
+    needs: [test, compose-validate, backup-test, observability-test]
     steps:
       - uses: actions/checkout@v4
 
@@ -133,7 +240,7 @@ jobs:
   docker:
     name: Docker Build
     runs-on: ubuntu-latest
-    needs: test
+    needs: [test, compose-validate, backup-test, observability-test]
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     steps:
       - uses: actions/checkout@v4
@@ -159,10 +266,17 @@ jobs:
             -e JWT_SECRET=test-secret \
             -e ENVIRONMENT=test \
             redpulse-test
-          sleep 10
-          curl -f http://localhost:8000/health || exit 1
+          sleep 12
+          curl -f http://localhost:8000/health || { docker logs redpulse-test; exit 1; }
+          curl -f http://localhost:8000/health/detailed | grep -q overall || { echo "detailed health failed"; docker logs redpulse-test; exit 1; }
+          curl -f http://localhost:8000/health/queue | grep -q queues || { echo "queue health failed"; exit 1; }
+          echo "All health endpoints OK"
           docker stop redpulse-test
           docker rm redpulse-test
+      - name: Validate compose with backup
+        run: |
+          docker compose --profile prod config | grep -q backup_data || { echo "backup volume missing in compose"; exit 1; }
+          echo "Compose backup service OK"
 
   # ==================== Deploy (Vercel) ====================
   deploy-backend:
