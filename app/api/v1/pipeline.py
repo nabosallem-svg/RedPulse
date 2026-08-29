@@ -1,6 +1,7 @@
 """RedPulse - Pipeline API Endpoints.
 
 Orchestrates the full recon-to-assessment pipeline via a single API call.
+Supports both synchronous and async (Celery background) execution.
 """
 
 import logging
@@ -11,6 +12,7 @@ from app.api.deps import get_db, get_current_user
 from app.db.models import User, Engagement, Project, Authorization
 from app.schemas import PipelineRunRequest, APIResponse
 from app.services.pipeline import PipelineOrchestrator
+from app.core.rate_limit import limiter, RATE_LIMITS
 
 logger = logging.getLogger("redpulse.api.pipeline")
 
@@ -18,7 +20,9 @@ router = APIRouter(tags=["pipeline"])
 
 
 @router.post("/run", response_model=APIResponse, status_code=status.HTTP_200_OK)
+@limiter.limit(RATE_LIMITS["pipeline_run"])
 async def run_pipeline(
+    request,
     data: PipelineRunRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -34,6 +38,8 @@ async def run_pipeline(
 
     If recon fails, assessment is skipped but the pipeline completes gracefully.
     If 0 assets are found, assessment is skipped.
+
+    Set `async_mode=true` to run as a background Celery task (returns task ID immediately).
     """
     # Verify engagement access
     from sqlalchemy import select
@@ -65,7 +71,29 @@ async def run_pipeline(
             detail="No authorization for this engagement. Complete DNS TXT or bug bounty verification first.",
         )
 
-    # Run pipeline
+    # Async mode: dispatch to Celery background worker
+    if data.async_mode:
+        try:
+            from app.services.tasks import run_pipeline as celery_pipeline
+            task = celery_pipeline.delay(
+                project_id=str(engagement.project_id),
+                engagement_id=data.engagement_id,
+                targets=[data.target],
+                auth_headers=data.auth_headers,
+                auth_cookies=data.auth_cookies,
+            )
+            return APIResponse(
+                success=True,
+                data={
+                    "task_id": task.id,
+                    "status": "queued",
+                    "message": "Pipeline dispatched to background worker. Poll /tasks/{task_id} for status.",
+                },
+            )
+        except Exception as exc:
+            logger.warning("Celery unavailable, falling back to sync: %s", exc)
+
+    # Synchronous mode (default)
     orchestrator = PipelineOrchestrator(db=db, user=current_user)
     pipeline_result = await orchestrator.run(
         engagement_id=data.engagement_id,

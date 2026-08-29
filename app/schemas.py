@@ -703,6 +703,11 @@ class PipelineRunRequest(BaseModel):
     # Authenticated scanning (Phase 5)
     auth_headers: Optional[Dict[str, str]] = Field(None, description="Custom HTTP headers for authenticated scanning")
     auth_cookies: Optional[str] = Field(None, max_length=2000, description="Session cookies for authenticated crawling")
+    # Background execution (Phase 11)
+    async_mode: bool = Field(
+        default=False,
+        description="If true, run pipeline as background Celery task and return task ID immediately",
+    )
 
 
 class PipelineResultSchema(BaseModel):

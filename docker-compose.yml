@@ -1,43 +1,79 @@
-﻿services:
+# RedPulse - Docker Compose (Production + Development)
+# Usage:
+#   Development: docker compose up
+#   Production:  docker compose --profile prod up -d
+#   Worker only: docker compose up -d worker
+
+services:
+  # ==================== Infrastructure ====================
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB: RedPulse
-      POSTGRES_USER: RedPulse
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-RedPulse_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-RedPulse}
+      POSTGRES_USER: ${POSTGRES_USER:-RedPulse}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U RedPulse -d RedPulse"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-RedPulse} -d ${POSTGRES_DB:-RedPulse}"]
       interval: 5s
       timeout: 3s
       retries: 10
       start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-}"]
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      ${REDIS_PASSWORD:+--requirepass ${REDIS_PASSWORD}}
     volumes:
       - redis_data:/data
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 10
       start_period: 5s
+    deploy:
+      resources:
+        limits:
+          memory: 300M
+        reservations:
+          memory: 128M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
+  # ==================== Application ====================
   api:
     build:
       context: .
       dockerfile: Dockerfile
-    image: RedPulse-api:latest
+      target: runtime
+    image: redpulse-api:latest
     restart: unless-stopped
     depends_on:
       postgres:
@@ -47,33 +83,52 @@
     env_file:
       - .env
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://RedPulse:${POSTGRES_PASSWORD:-RedPulse_secret}@postgres:5432/RedPulse}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://RedPulse:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-RedPulse}}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set}
       JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
       ENVIRONMENT: ${ENVIRONMENT:-production}
       BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-["http://localhost:3000"]}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
+      RATE_LIMIT_DEFAULT: ${RATE_LIMIT_DEFAULT:-60/minute}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
       NUCLEI_BIN: ${NUCLEI_BIN:-/usr/local/bin/nuclei}
       SUBFINDER_BIN: ${SUBFINDER_BIN:-/usr/local/bin/subfinder}
       HTTPX_BIN: ${HTTPX_BIN:-/usr/local/bin/httpx}
+      SCANNER_TIMEOUT: ${SCANNER_TIMEOUT:-60}
+      SCANNER_MAX_WORKERS: ${SCANNER_MAX_WORKERS:-4}
     ports:
-      - "8000:8000"
-    command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:create_app --factory --host 0.0.0.0 --port 8000 --workers 2"]
+      - "${API_PORT:-8000}:8000"
+    command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:create_app --factory --host 0.0.0.0 --port 8000 --workers ${API_WORKERS:-2} --proxy-headers --forwarded-allow-ips '*'"]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 10s
+      interval: 15s
       timeout: 5s
       retries: 5
-      start_period: 20s
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
 
+  # ==================== Background Worker ====================
   worker:
     build:
       context: .
       dockerfile: Dockerfile
-    image: RedPulse-api:latest
+      target: runtime
+    image: redpulse-api:latest
     restart: unless-stopped
     depends_on:
       postgres:
@@ -83,14 +138,79 @@
     env_file:
       - .env
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://RedPulse:${POSTGRES_PASSWORD:-RedPulse_secret}@postgres:5432/RedPulse}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://RedPulse:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-RedPulse}}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set}
       ENVIRONMENT: ${ENVIRONMENT:-production}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-    command: ["sh", "-c", "alembic upgrade head && python -m app.services.worker 2>&1 || (echo 'worker placeholder: waiting for jobs' && sleep 3600)"]
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/1}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/2}
+      NUCLEI_BIN: ${NUCLEI_BIN:-/usr/local/bin/nuclei}
+      SUBFINDER_BIN: ${SUBFINDER_BIN:-/usr/local/bin/subfinder}
+      HTTPX_BIN: ${HTTPX_BIN:-/usr/local/bin/httpx}
+    command: ["sh", "-c", "alembic upgrade head && celery -A app.services.celery_app worker -l info -c ${WORKER_CONCURRENCY:-2} -Q scans,default"]
     deploy:
-      replicas: 1
+      replicas: ${WORKER_REPLICAS:-1}
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # ==================== Celery Beat (Periodic Tasks) ====================
+  beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: redpulse-api:latest
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/1}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/2}
+    command: ["celery", "-A", "app.services.celery_app", "beat", "-l", "info", "--pidfile", "/tmp/celerybeat.pid"]
+    profiles: ["prod"]
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  # ==================== Flower (Celery Monitor) ====================
+  flower:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: redpulse-api:latest
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis:6379/0}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/1}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/2}
+    command: ["celery", "-A", "app.services.celery_app", "flower", "--port=5555", "--broker_api=redis://redis:6379/1"]
+    ports:
+      - "${FLOWER_PORT:-5555}:5555"
+    profiles: ["prod"]
+    deploy:
+      resources:
+        limits:
+          memory: 256M
 
 volumes:
   postgres_data:
@@ -100,4 +220,4 @@ volumes:
 
 networks:
   default:
-    name: RedPulse-net
+    name: redpulse-net

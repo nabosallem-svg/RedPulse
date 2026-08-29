@@ -15,6 +15,7 @@ from fastapi.exceptions import HTTPException
 from app.core.logging import setup_logging
 from app.core.config import get_settings
 from app.core.security import get_password_hash
+from app.core.rate_limit import setup_rate_limiting, limiter, RATE_LIMITS
 from app.db.models import User
 
 from app.api.deps import get_current_user, get_db
@@ -103,6 +104,9 @@ def create_app() -> FastAPI:
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
         response.headers["X-API-Version"] = "0.1.0"
         return response
+
+    # Rate limiting (SlowAPI)
+    setup_rate_limiting(app)
 
     # Include API routes
     from app.api.v1.auth import router as auth_router
