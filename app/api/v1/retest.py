@@ -82,6 +82,68 @@ async def create_and_run_retest(
     }
 
 
+@router.get("/{finding_id}/retests")
+async def get_finding_retest_history(
+    finding_id: str,
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """مسار تخزين تاريخ إعادة الفحص — يعرض سجل كل عمليات إعادة الفحص لـ Finding معين.
+
+    يعيد RetestJob مرتبة من الأحدث للأقدم، مع result: fixed / still_vulnerable / inconclusive
+    و Finding status المحدث: Fixed (RESOLVED) / Still Vulnerable (REOPENED/CONFIRMED) / Needs Review (INCONCLUSIVE).
+    """
+    from sqlalchemy import select
+    from app.db.models import Finding, Project
+    f_res = await db.execute(select(Finding).where(Finding.id == finding_id))
+    finding = f_res.scalar_one_or_none()
+    if not finding:
+        raise HTTPException(status_code=404, detail="Finding not found")
+    proj_res = await db.execute(select(Project).where(Project.id == finding.project_id, Project.owner_id == current_user.id))
+    if not proj_res.scalar_one_or_none():
+        # workspace fallback
+        proj_full = await db.execute(select(Project).where(Project.id == finding.project_id))
+        proj_obj = proj_full.scalar_one_or_none()
+        ws_id = getattr(proj_obj, "workspace_id", None) if proj_obj else None
+        if ws_id:
+            from app.services.workspace_service import WorkspaceService as WS
+            has, _ = await WS.check_workspace_access(db, ws_id, current_user.id, "finding:read")
+            if not has:
+                raise HTTPException(status_code=404, detail="Finding not found or access denied")
+        else:
+            raise HTTPException(status_code=404, detail="Finding not found or access denied")
+
+    jobs, total = await RetestService.list_retests(db, finding_id=finding_id, limit=limit, offset=offset)
+    # Fetch current finding status to show mapping
+    await db.refresh(finding)
+    return {
+        "success": True,
+        "data": {
+            "finding_id": finding_id,
+            "current_finding_status": finding.status.value if hasattr(finding.status, "value") else str(finding.status),
+            "retests": [
+                {
+                    "id": j.id,
+                    "finding_id": j.finding_id,
+                    "status": j.status.value if hasattr(j.status, "value") else str(j.status),
+                    "result": j.result.value if hasattr(j.result, "value") and j.result else None,
+                    "finding_status_after": "resolved" if j.result and str(j.result.value if hasattr(j.result, "value") else j.result) == "fixed" else ("needs_review" if j.result and str(j.result.value if hasattr(j.result, "value") else j.result) == "inconclusive" else "still_vulnerable"),
+                    "original_endpoint": j.original_endpoint,
+                    "original_template_id": j.original_template_id,
+                    "evidence": j.evidence,
+                    "verified_at": j.verified_at.isoformat() if j.verified_at else None,
+                    "created_at": j.created_at.isoformat() if j.created_at else None,
+                    "auto_resolved": j.auto_resolved,
+                }
+                for j in jobs
+            ],
+        },
+        "meta": {"total": total, "limit": limit, "offset": offset},
+    }
+
+
 @router.post("/batch-retest")
 async def batch_retest(
     data: BatchRetestRequest,

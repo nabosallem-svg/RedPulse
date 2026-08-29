@@ -38,13 +38,14 @@ class TriageAIService:
         db: AsyncSession,
         finding: Finding,
     ) -> Dict[str, Any]:
-        """Suggest whether finding is false positive based on historical feedback.
+        """Suggest whether finding is false positive based on historical feedback (weighted).
 
         Heuristics in order:
-        1. Same template_id FP rate (most specific)
-        2. Same category FP rate
+        1. Same template_id weighted FP rate (most specific) - uses TriageFeedback.feedback_weight
+        2. Same category weighted FP rate
         3. Severity/confidence fallback
-        Returns {prediction, confidence, reasoning, fp_rate, sample_count}
+        Weighted rate prevents silent bug where all feedback counts equally despite different severity/confidence.
+        Returns {prediction, confidence, reasoning, fp_rate, sample_count, weighted_fp_rate}
         """
         template_id = getattr(finding, "template_id", None)
         category = getattr(finding, "category", None)
@@ -93,43 +94,39 @@ class TriageAIService:
     async def _fp_rate_for_template(db: AsyncSession, template_id: Optional[str]) -> Tuple[float, int]:
         if not template_id:
             return 0.0, 0
-        # Count feedbacks for findings with this template_id
-        # Join TriageFeedback -> Finding via finding_id
-        q_total = await db.execute(
-            select(func.count()).select_from(TriageFeedback)
+        # Weighted FP rate: sum(feedback_weight where FP) / sum(feedback_weight total)
+        # This makes high-severity / high-confidence feedback count more than low-severity noise
+        result = await db.execute(
+            select(TriageFeedback.feedback_weight, TriageFeedback.decision)
             .join(Finding, Finding.id == TriageFeedback.finding_id)
             .where(Finding.template_id == template_id)
         )
-        total = q_total.scalar() or 0
-        if total == 0:
+        rows = result.all()
+        if not rows:
             return 0.0, 0
-        q_fp = await db.execute(
-            select(func.count()).select_from(TriageFeedback)
-            .join(Finding, Finding.id == TriageFeedback.finding_id)
-            .where(and_(Finding.template_id == template_id, TriageFeedback.decision == TriageDecision.FALSE_POSITIVE))
-        )
-        fp_count = q_fp.scalar() or 0
-        return fp_count / total if total else 0.0, total
+        total_weight = sum(float(r[0] or 1.0) for r in rows)
+        fp_weight = sum(float(r[0] or 1.0) for r in rows if r[1] == TriageDecision.FALSE_POSITIVE)
+        if total_weight == 0:
+            return 0.0, len(rows)
+        return fp_weight / total_weight, len(rows)
 
     @staticmethod
     async def _fp_rate_for_category(db: AsyncSession, category: Optional[str]) -> Tuple[float, int]:
         if not category:
             return 0.0, 0
-        q_total = await db.execute(
-            select(func.count()).select_from(TriageFeedback)
+        result = await db.execute(
+            select(TriageFeedback.feedback_weight, TriageFeedback.decision)
             .join(Finding, Finding.id == TriageFeedback.finding_id)
             .where(Finding.category == category)
         )
-        total = q_total.scalar() or 0
-        if total == 0:
+        rows = result.all()
+        if not rows:
             return 0.0, 0
-        q_fp = await db.execute(
-            select(func.count()).select_from(TriageFeedback)
-            .join(Finding, Finding.id == TriageFeedback.finding_id)
-            .where(and_(Finding.category == category, TriageFeedback.decision == TriageDecision.FALSE_POSITIVE))
-        )
-        fp_count = q_fp.scalar() or 0
-        return fp_count / total if total else 0.0, total
+        total_weight = sum(float(r[0] or 1.0) for r in rows)
+        fp_weight = sum(float(r[0] or 1.0) for r in rows if r[1] == TriageDecision.FALSE_POSITIVE)
+        if total_weight == 0:
+            return 0.0, len(rows)
+        return fp_weight / total_weight, len(rows)
 
     @staticmethod
     async def get_training_dataset(
@@ -157,6 +154,7 @@ class TriageAIService:
                 "ai_prediction": fb.ai_prediction,
                 "ai_was_correct": fb.ai_was_correct,
                 "reason": fb.reason,
+                "feedback_weight": fb.feedback_weight,
             })
         return dataset
 
@@ -259,13 +257,34 @@ class TriageService:
         ai_is_fp = ai_pred == "false_positive"
         ai_was_correct = (analyst_is_fp == ai_is_fp)
 
-        # Weight: high/critical severity feedbacks weigh more for training
+        # --- feedback_weight: how much this human verdict counts for AI training ---
+        # Rationale (explicit to avoid silent bug where all feedback is equal):
+        # Severity alone is not enough — a high-severity FP confirmed by a senior analyst
+        # should count more than a low-severity one. We also factor in AI confidence:
+        # if the finding had high AI confidence but was still marked FP, that's a stronger
+        # learning signal. Weight is capped 0.5..2.0 to prevent dominance.
+        # Formula: base 1.0 * severity_factor * confidence_factor (role factor future)
         severity_str = str(finding.severity.value if hasattr(finding.severity, "value") else finding.severity).lower()
-        weight = 1.0
-        if severity_str in ("critical", "high"):
-            weight = 1.5
-        elif severity_str in ("info", "low"):
-            weight = 0.7
+        severity_factor = {"critical": 1.5, "high": 1.3, "medium": 1.0, "low": 0.7, "info": 0.5}.get(severity_str, 1.0)
+        # Confidence factor: low-confidence findings are noisier -> slightly lower weight
+        finding_conf = int(getattr(finding, "confidence", 50) or 50)
+        if finding_conf < 30:
+            confidence_factor = 0.8
+        elif finding_conf > 80:
+            confidence_factor = 1.2
+        else:
+            confidence_factor = 1.0
+        # AI confidence factor: if AI was very confident but wrong, that feedback is more valuable
+        ai_conf_factor = 1.0
+        try:
+            ai_conf = float(ai_suggestion.get("confidence", 0.5))
+            if not ai_was_correct and ai_conf > 0.8:
+                ai_conf_factor = 1.25  # AI confidently wrong -> high learning value
+            elif ai_was_correct and ai_conf > 0.8:
+                ai_conf_factor = 1.1
+        except Exception:
+            pass
+        weight = round(max(0.5, min(2.0, 1.0 * severity_factor * confidence_factor * ai_conf_factor)), 2)
 
         # Update finding status
         new_status = TriageService.DECISION_TO_STATUS.get(decision_enum)

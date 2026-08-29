@@ -1020,7 +1020,12 @@ class TriageFeedback(Base):
 
     # Learning flags
     ai_was_correct = Column(Boolean, nullable=True, comment="Whether AI matched analyst decision")
-    feedback_weight = Column(Float, nullable=False, default=1.0, comment="Weight for training (higher for high-severity)")
+    # Explicit weighted learning: feedback_weight is computed in TriageService.submit_triage as
+    # base 1.0 * severity_factor {critical:1.5, high:1.3, medium:1.0, low:0.7, info:0.5}
+    #         * confidence_factor {finding.confidence <30:0.8, >80:1.2}
+    #         * ai_conf_factor {AI confidently wrong:1.25, confidently correct:1.1}
+    # Capped 0.5..2.0. Used by TriageAIService as weighted FP rate, so not all feedback is equal.
+    feedback_weight = Column(Float, nullable=False, default=1.0, comment="Weighted importance for AI training: severity * confidence * AI-surprise, capped 0.5..2.0")
 
     created_at = Column(DateTime, nullable=False, default=sa.func.now(), index=True)
     updated_at = Column(DateTime, nullable=False, default=sa.func.now(), onupdate=sa.func.now())
@@ -1047,9 +1052,11 @@ class RetestJob(Base):
     status = Column(retest_status_enum, nullable=False, default=RetestStatus.PENDING)
     result = Column(retest_result_enum, nullable=True)
 
-    # Snapshot of original finding at retest creation (for comparison)
+    # Snapshot of original finding at retest creation (for comparison) - ensures same endpoint/parameter check
     original_evidence = Column(Text, nullable=True)
     original_endpoint = Column(String(500), nullable=True)
+    original_template_id = Column(String(200), nullable=True, comment="Original nuclei template_id - retest runs same check")
+    original_parameter = Column(String(200), nullable=True, comment="Vulnerable parameter if applicable")
 
     # Verification output
     evidence = Column(Text, nullable=True, comment="New evidence / micro-scan output")

@@ -121,6 +121,7 @@ async def submit_triage(
             "ai_confidence": feedback.ai_confidence,
             "ai_was_correct": feedback.ai_was_correct,
             "reason": feedback.reason,
+            "feedback_weight": feedback.feedback_weight,
             "created_at": feedback.created_at.isoformat() if feedback.created_at else None,
         },
     }
@@ -165,6 +166,7 @@ async def get_triage_history(
                 "ai_prediction": h.ai_prediction,
                 "ai_was_correct": h.ai_was_correct,
                 "reason": h.reason,
+                "feedback_weight": h.feedback_weight,
                 "analyst_id": h.analyst_id,
                 "created_at": h.created_at.isoformat() if h.created_at else None,
             }
@@ -223,6 +225,7 @@ async def list_triage_feedback(
                 "decision": f.decision.value if hasattr(f.decision, "value") else str(f.decision),
                 "ai_prediction": f.ai_prediction,
                 "ai_was_correct": f.ai_was_correct,
+                "feedback_weight": f.feedback_weight,
                 "analyst_id": f.analyst_id,
                 "created_at": f.created_at.isoformat() if f.created_at else None,
             }
@@ -312,6 +315,7 @@ async def mark_false_positive(
                 "ai_prediction": feedback.ai_prediction,
                 "ai_confidence": feedback.ai_confidence,
                 "ai_was_correct": feedback.ai_was_correct,
+                "feedback_weight": feedback.feedback_weight,
                 "created_at": feedback.created_at.isoformat() if feedback.created_at else None,
             },
             "finding": {

@@ -57,6 +57,8 @@ class RetestService:
             status=RetestStatus.PENDING,
             original_evidence=getattr(finding, "evidence", None),
             original_endpoint=getattr(finding, "endpoint", None),
+            original_template_id=getattr(finding, "template_id", None),
+            original_parameter=(getattr(finding, "endpoint", "") or "").split("?")[-1].split("=")[0] if "?" in (getattr(finding, "endpoint", "") or "") else None,
             auto_resolved=auto_resolve,
         )
         db.add(job)
@@ -104,17 +106,45 @@ class RetestService:
             if is_fixed:
                 job.result = RetestResult.FIXED
                 job.status = RetestStatus.COMPLETED
-                # Auto-resolve finding if enabled and still not resolved
+                # Fixed -> update Finding to Fixed (RESOLVED) if auto_resolved
                 if job.auto_resolved:
                     f_res = await db.execute(select(Finding).where(Finding.id == job.finding_id))
                     finding = f_res.scalar_one_or_none()
-                    if finding and finding.status != FindingStatus.RESOLVED:
-                        finding.status = FindingStatus.RESOLVED
-                        finding.last_seen = datetime.now(timezone.utc)
-                        logger.info("retest_auto_resolved finding=%s job=%s", finding.id, job.id)
+                    if finding:
+                        f_status_str = str(getattr(finding.status, "value", finding.status)).lower()
+                        if f_status_str != "resolved":
+                            finding.status = FindingStatus.RESOLVED
+                            finding.last_seen = datetime.now(timezone.utc)
+                            logger.info("retest_fixed finding=%s job=%s endpoint=%s template=%s", finding.id, job.id, job.original_endpoint, job.original_template_id)
+                else:
+                    logger.info("retest_fixed_no_auto finding=%s job=%s", job.finding_id, job.id)
             else:
-                job.result = RetestResult.STILL_VULNERABLE
-                job.status = RetestStatus.COMPLETED
+                # Check if scan was inconclusive (e.g., endpoint unreachable, template error)
+                # _micro_scan returns is_fixed False for still vulnerable; inconclusive is handled via exception -> FAILED
+                # Here we treat non-fixed as Still Vulnerable
+                # But also support explicit INCONCLUSIVE if engine returned it
+                engine_inconclusive = scan_result.get("engine_result", {}).get("new_status") == "INCONCLUSIVE"
+                if engine_inconclusive:
+                    job.result = RetestResult.INCONCLUSIVE
+                    job.status = RetestStatus.COMPLETED
+                    # Needs Review -> keep Finding as is but mark for review (no auto status change, just retest history)
+                    logger.info("retest_inconclusive finding=%s job=%s needs_review", job.finding_id, job.id)
+                else:
+                    job.result = RetestResult.STILL_VULNERABLE
+                    job.status = RetestStatus.COMPLETED
+                    # Still Vulnerable -> update Finding to reflect it (REOPENED if was RESOLVED, else CONFIRMED)
+                    # This ensures Finding status reflects current retest verdict: Fixed / Still Vulnerable / Needs Review
+                    f_res = await db.execute(select(Finding).where(Finding.id == job.finding_id))
+                    finding = f_res.scalar_one_or_none()
+                    if finding:
+                        f_status_str = str(getattr(finding.status, "value", finding.status)).lower()
+                        if f_status_str == "resolved":
+                            finding.status = FindingStatus.REOPENED
+                            logger.info("retest_still_vulnerable_reopened finding=%s job=%s", finding.id, job.id)
+                        elif f_status_str not in ("confirmed", "reopened"):
+                            finding.status = FindingStatus.CONFIRMED
+                            logger.info("retest_still_vulnerable_confirmed finding=%s job=%s", finding.id, job.id)
+                        finding.last_seen = datetime.now(timezone.utc)
 
             await db.commit()
             await db.refresh(job)
