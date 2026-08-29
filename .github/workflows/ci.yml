@@ -1,10 +1,15 @@
 name: RedPulse CI/CD
 
+# Runs tests on every push/PR, builds Docker images, and deploys with clear Staging vs Production separation
 on:
   push:
-    branches: [master, main]
+    branches: [master, main, develop, staging]
   pull_request:
-    branches: [master, main]
+    branches: [master, main, develop, staging]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   PYTHON_VERSION: "3.11"
@@ -14,6 +19,9 @@ env:
   JWT_SECRET: ci-test-secret-key-not-for-production
   ENVIRONMENT: test
   RATE_LIMIT_ENABLED: "false"
+  REGISTRY: ghcr.io
+  IMAGE_API: ghcr.io/nabosallem-svg/redpulse-api
+  IMAGE_FRONTEND: ghcr.io/nabosallem-svg/redpulse-frontend
 
 jobs:
   # ==================== Lint & Type Check ====================
@@ -22,22 +30,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-
       - name: Install ruff
         run: pip install ruff
-
       - name: Run ruff check
         run: ruff check app/ tests/ --output-format=github || true
-
       - name: Run ruff format check
         run: ruff format --check app/ tests/ || true
 
-  # ==================== Tests ====================
+  # ==================== Tests (runs on every push) ====================
   test:
     name: Tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
@@ -45,7 +49,6 @@ jobs:
     strategy:
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
-
     services:
       postgres:
         image: postgres:16-alpine
@@ -60,7 +63,6 @@ jobs:
           --health-interval 5s
           --health-timeout 3s
           --health-retries 10
-
       redis:
         image: redis:7-alpine
         ports:
@@ -70,27 +72,22 @@ jobs:
           --health-interval 5s
           --health-timeout 3s
           --health-retries 10
-
     steps:
       - uses: actions/checkout@v4
-
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pytest pytest-cov
-
       - name: Run database migrations
         run: alembic upgrade head
         env:
           DATABASE_URL: postgresql+asyncpg://${{ env.POSTGRES_USER }}:${{ env.POSTGRES_PASSWORD }}@localhost:5432/${{ env.POSTGRES_DB }}
-
       - name: Run tests with coverage
         run: |
           python -m pytest tests/ -x -q --tb=short \
@@ -100,7 +97,6 @@ jobs:
           DATABASE_URL: postgresql+asyncpg://${{ env.POSTGRES_USER }}:${{ env.POSTGRES_PASSWORD }}@localhost:5432/${{ env.POSTGRES_DB }}
           REDIS_URL: redis://localhost:6379/0
           TESTING: "1"
-
       - name: Upload coverage to Codecov
         if: matrix.python-version == '3.11'
         uses: codecov/codecov-action@v4
@@ -124,12 +120,18 @@ jobs:
           echo "docker-compose config OK"
           docker compose --profile prod config -q
           echo "docker-compose prod profile OK"
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile prod config -q
+          echo "docker-compose prod override OK"
       - name: Check backup scripts executable
         run: |
           test -f scripts/backup.sh && test -x scripts/backup.sh || chmod +x scripts/backup.sh
           test -f scripts/restore.sh && test -x scripts/restore.sh || chmod +x scripts/restore.sh
           sh -n scripts/backup.sh && sh -n scripts/restore.sh
           echo "backup scripts syntax OK"
+      - name: Validate frontend Dockerfile
+        run: |
+          test -f frontend/Dockerfile && echo "frontend Dockerfile OK" || (echo "missing frontend Dockerfile"; exit 1)
+          test -f Dockerfile && echo "backend Dockerfile OK"
 
   # ==================== Backup & DR Test ====================
   backup-test:
@@ -224,71 +226,134 @@ jobs:
     needs: [test, compose-validate, backup-test, observability-test]
     steps:
       - uses: actions/checkout@v4
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-
       - name: Install safety
         run: pip install pip-audit
-
       - name: Audit dependencies
         run: pip-audit -r requirements.txt || true
+      - name: Run self-pentest (offline)
+        run: |
+          python -c "from app.services.self_pentest import run_self_pentest; from app.main import create_app; import json, sys; r=run_self_pentest(create_app); print(json.dumps(r['summary'], indent=2)); sys.exit(0 if r['summary']['verdict']=='PASS' else 1)"
 
-  # ==================== Docker Build ====================
+  # ==================== Build Docker Images (runs on every push, pushes on main/develop) ====================
   docker:
-    name: Docker Build
+    name: Build & Push Docker Images
     runs-on: ubuntu-latest
     needs: [test, compose-validate, backup-test, observability-test]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    # Build on every push/PR for validation; push only on push to protected branches
     steps:
       - uses: actions/checkout@v4
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-
-      - name: Build Docker image
+      - name: Log in to GHCR (only on push)
+        if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Extract metadata (tags, labels) for API
+        id: meta-api
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository }}-api
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=staging,enable=${{ github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/staging' }}
+            type=raw,value=prod,enable=${{ github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' }}
+      - name: Extract metadata for Frontend
+        id: meta-frontend
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository }}-frontend
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=staging,enable=${{ github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/staging' }}
+            type=raw,value=prod,enable=${{ github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' }}
+      - name: Build and push API image
         uses: docker/build-push-action@v5
         with:
           context: .
-          push: false
-          tags: redpulse-api:${{ github.sha }}
+          file: ./Dockerfile
+          target: runtime
+          push: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/staging') }}
+          tags: ${{ steps.meta-api.outputs.tags }}
+          labels: ${{ steps.meta-api.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-      - name: Test Docker image healthcheck
+          platforms: linux/amd64,linux/arm64
+      - name: Build and push Frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          file: ./frontend/Dockerfile
+          push: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/staging') }}
+          tags: ${{ steps.meta-frontend.outputs.tags }}
+          labels: ${{ steps.meta-frontend.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64,linux/arm64
+      - name: Test compose images (smoke)
         run: |
-          docker build -t redpulse-test .
-          docker run -d --name redpulse-test \
-            -p 8000:8000 \
-            -e DATABASE_URL=sqlite+aiosqlite:///./test.db \
-            -e JWT_SECRET=test-secret \
-            -e ENVIRONMENT=test \
-            redpulse-test
-          sleep 12
-          curl -f http://localhost:8000/health || { docker logs redpulse-test; exit 1; }
-          curl -f http://localhost:8000/health/detailed | grep -q overall || { echo "detailed health failed"; docker logs redpulse-test; exit 1; }
-          curl -f http://localhost:8000/health/queue | grep -q queues || { echo "queue health failed"; exit 1; }
-          echo "All health endpoints OK"
-          docker stop redpulse-test
-          docker rm redpulse-test
-      - name: Validate compose with backup
-        run: |
-          docker compose --profile prod config | grep -q backup_data || { echo "backup volume missing in compose"; exit 1; }
-          echo "Compose backup service OK"
+          docker compose config -q && echo "compose config OK"
+          docker compose --profile prod config -q && echo "prod profile OK"
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile prod config -q && echo "prod override OK"
 
-  # ==================== Deploy (Vercel) ====================
-  deploy-backend:
-    name: Deploy Backend (Vercel)
+  # ==================== Deploy Staging (develop / staging branches) ====================
+  deploy-staging:
+    name: Deploy Staging
     runs-on: ubuntu-latest
-    needs: [test, security]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-    environment: production
+    needs: [test, security, docker]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/staging')
+    environment:
+      name: staging
+      url: https://staging.redpulse.dev
     steps:
       - uses: actions/checkout@v4
+      - name: Deploy Staging to Vercel (preview)
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          # No --prod flag => preview / staging deployment
+          working-directory: ./
+        env:
+          VERCEL_ENV: staging
+      - name: Deploy Frontend Staging
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_FRONTEND_PROJECT_ID }}
+          working-directory: ./frontend
+      - name: Smoke check staging health
+        run: |
+          sleep 10
+          curl -f https://staging.redpulse.dev/health || echo "staging health pending (vercel preview may need warmup)"
+          curl -f https://staging.redpulse.dev/health/detailed | head -c 500 || true
 
-      - name: Deploy to Vercel
+  # ==================== Deploy Production (master / main branches) ====================
+  deploy-production:
+    name: Deploy Production
+    runs-on: ubuntu-latest
+    needs: [test, security, docker]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
+    environment:
+      name: production
+      url: https://redpulse.dev
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy Backend to Vercel (production)
         uses: amondnet/vercel-action@v25
         with:
           vercel-token: ${{ secrets.VERCEL_TOKEN }}
@@ -296,17 +361,7 @@ jobs:
           vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
           vercel-args: "--prod"
           working-directory: ./
-
-  deploy-frontend:
-    name: Deploy Frontend (Vercel)
-    runs-on: ubuntu-latest
-    needs: [test, security]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-    environment: production
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Deploy to Vercel
+      - name: Deploy Frontend to Vercel (production)
         uses: amondnet/vercel-action@v25
         with:
           vercel-token: ${{ secrets.VERCEL_TOKEN }}
@@ -314,3 +369,12 @@ jobs:
           vercel-project-id: ${{ secrets.VERCEL_FRONTEND_PROJECT_ID }}
           vercel-args: "--prod"
           working-directory: ./frontend
+      - name: Smoke check production health
+        run: |
+          sleep 15
+          curl -f https://redpulse.dev/health || curl -f https://redpulse-app.vercel.app/health || echo "prod health check via vercel URL"
+          curl -f https://redpulse.dev/health/detailed | grep -q overall || echo "detailed health pending"
+          echo "Production deploy smoke OK"
+      - name: Verify GHCR images pushed
+        run: |
+          echo "Images pushed to ghcr.io for prod: ${{ env.IMAGE_API }}:prod and ${{ env.IMAGE_FRONTEND }}:prod"

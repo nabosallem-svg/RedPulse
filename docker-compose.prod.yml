@@ -1,0 +1,67 @@
+# RedPulse - Production Overrides
+# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile prod up -d
+# This file tightens production settings on top of the base compose.
+
+services:
+  postgres:
+    # Production postgres: stricter, no host port expose, keep only internal
+    ports: []  # do not expose to host in prod; access via internal network only
+    command: >
+      postgres
+      -c max_connections=200
+      -c shared_buffers=256MB
+      -c effective_cache_size=768MB
+      -c log_min_duration_statement=500
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+
+  redis:
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      ${REDIS_PASSWORD:+--requirepass ${REDIS_PASSWORD}}
+      --save 60 1000
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  api:
+    environment:
+      ENVIRONMENT: production
+      LOG_LEVEL: INFO
+      LOG_FORMAT: json
+      RATE_LIMIT_ENABLED: "true"
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
+    logging:
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  worker:
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          memory: 2G
+    environment:
+      ENVIRONMENT: production
+      WORKER_CONCURRENCY: 4
+
+  frontend:
+    environment:
+      NODE_ENV: production
+    deploy:
+      resources:
+        limits:
+          memory: 512M
