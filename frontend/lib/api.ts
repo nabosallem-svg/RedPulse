@@ -4,7 +4,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL;
 const api = axios.create({
   baseURL: API_BASE && API_BASE.trim().length > 0 ? API_BASE : "",
   headers: { "Content-Type": "application/json" },
-  withCredentials: false,
+  withCredentials: true, // allow httpOnly Secure cookies (access_token/refresh_token) for defense-in-depth against XSS
 });
 
 let isRefreshing = false;

@@ -105,6 +105,22 @@ def create_app() -> FastAPI:
         response.headers["X-API-Version"] = "0.1.0"
         return response
 
+    # API observability: latency + failure rate (for /health/detailed alerts)
+    @app.middleware("http")
+    async def metrics_middleware(request: Request, call_next):
+        import time as _time
+        start = _time.time()
+        response = await call_next(request)
+        latency_ms = (_time.time() - start) * 1000
+        try:
+            from app.services.observability_service import ObservabilityService
+
+            ObservabilityService.record_api_request(latency_ms, response.status_code)
+            response.headers["X-Response-Time-ms"] = str(round(latency_ms, 1))
+        except Exception:
+            pass
+        return response
+
     # Rate limiting (SlowAPI)
     setup_rate_limiting(app)
 

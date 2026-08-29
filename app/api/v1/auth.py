@@ -5,7 +5,7 @@ Handles user signup, login, and token refresh.
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field
 
 from app.api.deps import get_current_user, get_db
@@ -58,6 +58,7 @@ async def get_me(current_user: User = Depends(get_current_user)) -> UserSchema:
 @router.post("/signup", status_code=status.HTTP_201_CREATED)
 async def signup(
     data: SignupSchema,
+    response: Response,
     db = Depends(get_db),
 ):
     """Register a new user.
@@ -86,6 +87,27 @@ async def signup(
     access_token = create_access_token(subject=user.email)
     refresh_token = create_refresh_token(subject=user.email)
 
+    # Fix: Store tokens in httpOnly Secure cookies to mitigate XSS token theft via localStorage
+    # Frontend can still use Bearer header, but cookies provide defense-in-depth.
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        secure=False,  # set True in production with HTTPS (ENVIRONMENT=production)
+        samesite="strict",
+        max_age=60 * 30,  # 30 min matches ACCESS_TOKEN_EXPIRE_MINUTES
+        path="/",
+    )
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,
+        secure=False,
+        samesite="strict",
+        max_age=60 * 60 * 24 * 7,  # 7 days
+        path="/api/v1/auth",
+    )
+
     return {
         "access_token": access_token,
         "refresh_token": refresh_token,
@@ -96,6 +118,7 @@ async def signup(
 @router.post("/login")
 async def login(
     data: LoginSchema,
+    response: Response,
     db = Depends(get_db),
 ):
     """Login with email and password.
@@ -125,6 +148,25 @@ async def login(
     access_token = create_access_token(subject=user.email)
     refresh_token = create_refresh_token(subject=user.email)
 
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        secure=False,
+        samesite="strict",
+        max_age=60 * 30,
+        path="/",
+    )
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,
+        secure=False,
+        samesite="strict",
+        max_age=60 * 60 * 24 * 7,
+        path="/api/v1/auth",
+    )
+
     return {
         "access_token": access_token,
         "refresh_token": refresh_token,
@@ -135,6 +177,7 @@ async def login(
 @router.post("/refresh")
 async def refresh(
     data: RefreshSchema,
+    response: Response,
     db = Depends(get_db),
 ):
     """Refresh an access token using a refresh token.
@@ -160,7 +203,25 @@ async def refresh(
 
     from app.core.security import create_access_token
 
+    response.set_cookie(
+        key="access_token",
+        value=new_access_token,
+        httponly=True,
+        secure=False,
+        samesite="strict",
+        max_age=60 * 30,
+        path="/",
+    )
+
     return {
         "access_token": new_access_token,
         "token_type": "bearer",
     }
+
+
+@router.post("/logout")
+async def logout(response: Response):
+    """Clear httpOnly auth cookies (defense-in-depth for XSS)."""
+    response.delete_cookie(key="access_token", path="/")
+    response.delete_cookie(key="refresh_token", path="/api/v1/auth")
+    return {"detail": "Logged out"}

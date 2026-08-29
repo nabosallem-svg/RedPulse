@@ -5,7 +5,7 @@ Dependency injection for database sessions and authentication.
 
 from typing import Generator, Optional
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from sqlalchemy import select
@@ -21,6 +21,9 @@ from app.db.base import Base
 
 get_bearer_scheme = HTTPBearer(auto_error=False)
 
+# In-memory fallback for metrics (when Redis unavailable)
+_metrics_store = {"requests": 0, "failures": 0, "latencies": []}
+
 
 async def get_db() -> Generator[AsyncSession, None, None]:
     """Dependency that provides an async database session.
@@ -33,22 +36,23 @@ async def get_db() -> Generator[AsyncSession, None, None]:
 
 
 async def get_current_user(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(get_bearer_scheme),
 ) -> User:
     """Dependency that extracts and validates the JWT, returning the current User.
 
-    Args:
-        db: Database session dependency.
-        credentials: Bearer token credentials from the Authorization header.
-
-    Returns:
-        User instance if the token is valid and the user exists.
-
-    Raises:
-        HTTPException: 401 if the token is missing, invalid, or the user is not found.
+    Defense-in-depth: checks Bearer header first, then httpOnly cookie `access_token`
+    (mitigates XSS token theft via localStorage). See pentest report: token storage.
     """
-    if credentials is None:
+    token: Optional[str] = None
+    if credentials is not None and credentials.credentials:
+        token = credentials.credentials
+    else:
+        # Fallback to httpOnly cookie set by /auth/login, /auth/signup, /auth/refresh
+        token = request.cookies.get("access_token")
+
+    if token is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated",
@@ -56,7 +60,7 @@ async def get_current_user(
         )
 
     try:
-        payload = decode_token(credentials.credentials)
+        payload = decode_token(token)
         subject: str = payload.get("sub")
 
         if subject is None:
