@@ -41,12 +41,32 @@ export default function DashboardPage() {
     );
   }
 
+  const [onboard, setOnboard] = useState<{ percent: number; next?: string } | null>(null);
+  useEffect(() => {
+    api.get("/api/v1/onboarding/progress").then((r) => {
+      const d = r.data?.data ?? r.data;
+      setOnboard({ percent: d?.progress?.percent ?? 0, next: d?.next_step?.title });
+    }).catch(() => {});
+  }, []);
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
         <p className="text-sm text-[var(--muted-foreground)]">Controlled Pentesting — all scans are targeted via scope_validator</p>
       </div>
+
+      {onboard && onboard.percent < 100 && (
+        <Card className="border-amber-500/20 bg-amber-500/5">
+          <CardContent className="p-4 flex items-center justify-between">
+            <div>
+              <div className="text-sm font-medium">First-run onboarding — {onboard.percent}% complete</div>
+              <div className="text-xs text-[var(--muted-foreground)]">Next: {onboard.next ?? "Continue setup"} · ~5 min to first scan</div>
+            </div>
+            <Link href="/onboarding"><Button size="sm">Continue onboarding</Button></Link>
+          </CardContent>
+        </Card>
+      )}
 
       {error && (
         <div className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded p-3">{error}</div>

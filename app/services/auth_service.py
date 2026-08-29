@@ -31,6 +31,9 @@ async def create_user(db: AsyncSession, email: str, password: str) -> User:
     if existing_user:
         raise ValueError("Email already registered")
 
+    if len(password) < 8:
+        raise ValueError("Password must be at least 8 characters")
+
     # Hash password and create user
     hashed_password = get_password_hash(password)  # Note: this needs to be imported or defined
 

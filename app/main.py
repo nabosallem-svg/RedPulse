@@ -217,6 +217,16 @@ def create_app() -> FastAPI:
 
     app.include_router(backup_router, prefix="/api/v1", tags=["backup"])
 
+    # Legal docs (public)
+    from app.api.v1.legal import router as legal_router
+
+    app.include_router(legal_router, prefix="/api/v1", tags=["legal"])
+
+    # Onboarding first-run
+    from app.api.v1.onboarding import router as onboarding_router
+
+    app.include_router(onboarding_router, prefix="/api/v1", tags=["onboarding"])
+
     # Temporary me endpoint for auth testing
     @app.get("/api/v1/me", tags=["auth"])
     async def get_me(current_user: User = Depends(get_current_user)) -> dict:

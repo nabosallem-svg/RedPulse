@@ -15,7 +15,7 @@ from app.services.auth_service import create_user, authenticate_user, refresh_ac
 
 class SignupSchema(BaseModel):
     email: str = Field(..., description="User email address")
-    password: str = Field(..., description="Plain text password")
+    password: str = Field(..., min_length=8, description="Plain text password (min 8 chars)")
 
 
 class LoginSchema(BaseModel):
