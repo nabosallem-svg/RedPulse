@@ -112,6 +112,42 @@ class ChangeType(str, Enum):
     REMOVED = "removed"
 
 
+class WorkspaceRole(str, Enum):
+    """Workspace member role enum (RBAC)."""
+
+    ADMIN = "admin"
+    ANALYST = "analyst"
+    VIEWER = "viewer"
+
+
+class SubscriptionPlan(str, Enum):
+    """Subscription plan enum."""
+
+    FREE = "free"
+    PRO = "pro"
+    BUSINESS = "business"
+    ENTERPRISE = "enterprise"
+
+
+class SubscriptionStatus(str, Enum):
+    """Subscription status enum."""
+
+    ACTIVE = "active"
+    PAST_DUE = "past_due"
+    CANCELED = "canceled"
+    TRIALING = "trialing"
+
+
+class CreditType(str, Enum):
+    """Credit transaction type."""
+
+    GRANTED = "granted"
+    PURCHASED = "purchased"
+    CONSUMED = "consumed"
+    EXPIRED = "expired"
+    REFUNDED = "refunded"
+
+
 # SQLAlchemy Enum types for DB-level constraint
 user_status_enum = sa.Enum(UserStatus)
 project_status_enum = sa.Enum(ProjectStatus)
@@ -123,6 +159,10 @@ recon_job_status_enum = sa.Enum(ReconJobStatus)
 recon_tool_enum = sa.Enum(ReconTool)
 asset_type_enum = sa.Enum(AssetType)
 change_type_enum = sa.Enum(ChangeType)
+workspace_role_enum = sa.Enum(WorkspaceRole)
+subscription_plan_enum = sa.Enum(SubscriptionPlan)
+subscription_status_enum = sa.Enum(SubscriptionStatus)
+credit_type_enum = sa.Enum(CreditType)
 
 
 # ----- Models -----
@@ -161,10 +201,14 @@ class Project(Base):
     owner_id = Column(
         String(36), ForeignKey("users.id"), nullable=False
     )  # FK to User.id
+    workspace_id = Column(
+        String(36), ForeignKey("workspaces.id"), nullable=True, index=True
+    )  # FK to Workspace.id (multi-tenancy)
     created_at = Column(DateTime, nullable=False, default=sa.func.now())
 
     # Relationships
     owner = relationship("User", back_populates="projects")
+    workspace = relationship("Workspace", back_populates="projects")
     engagements = relationship("Engagement", back_populates="project", cascade="all, delete-orphan")
     authorizations = relationship("Authorization", back_populates="project", cascade="all, delete-orphan")
 
@@ -321,9 +365,192 @@ class ReconJob(Base):
 
     # Relationships
     engagement = relationship("Engagement", back_populates="recon_jobs")
-    user = relationship("User")
     assets = relationship("Asset", back_populates="recon_job", cascade="all, delete-orphan")
     results = relationship("ReconResult", back_populates="recon_job", cascade="all, delete-orphan")
+    user = relationship("User")
+
+
+# ==================== SaaS Layer Models (Phase 9) ====================
+
+
+class Workspace(Base):
+    """Workspace model - multi-tenancy container.
+
+    Each workspace isolates data between different customers/teams.
+    All projects, engagements, and findings belong to a workspace.
+    """
+
+    __tablename__ = "workspaces"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    name = Column(String(255), nullable=False)
+    slug = Column(String(100), unique=True, nullable=False, index=True)
+    description = Column(Text, nullable=True)
+    owner_id = Column(String(36), ForeignKey("users.id"), nullable=False)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, nullable=False, default=sa.func.now())
+    updated_at = Column(DateTime, nullable=False, default=sa.func.now(), onupdate=sa.func.now())
+
+    # Relationships
+    owner = relationship("User", foreign_keys=[owner_id])
+    members = relationship("WorkspaceMember", back_populates="workspace", cascade="all, delete-orphan")
+    projects = relationship("Project", back_populates="workspace")
+    subscription = relationship("Subscription", back_populates="workspace", uselist=False)
+
+
+class WorkspaceMember(Base):
+    """Workspace membership with RBAC role.
+
+    Roles:
+    - admin: Full access (manage members, billing, all projects)
+    - analyst: Can run scans, manage findings, create reports
+    - viewer: Read-only access to all workspace data
+    """
+
+    __tablename__ = "workspace_members"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "user_id", name="uq_workspace_member"),
+    )
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    workspace_id = Column(String(36), ForeignKey("workspaces.id"), nullable=False, index=True)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    role = Column(workspace_role_enum, nullable=False, default=WorkspaceRole.VIEWER)
+    invited_by = Column(String(36), ForeignKey("users.id"), nullable=True)
+    joined_at = Column(DateTime, nullable=False, default=sa.func.now())
+
+    # Relationships
+    workspace = relationship("Workspace", back_populates="members")
+    user = relationship("User", foreign_keys=[user_id])
+    inviter = relationship("User", foreign_keys=[invited_by])
+
+
+class Subscription(Base):
+    """Subscription model for billing via Stripe.
+
+    Tracks the current plan, Stripe customer/subscription IDs,
+    and billing cycle dates.
+    """
+
+    __tablename__ = "subscriptions"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    workspace_id = Column(String(36), ForeignKey("workspaces.id"), nullable=False, unique=True, index=True)
+    plan = Column(subscription_plan_enum, nullable=False, default=SubscriptionPlan.FREE)
+    status = Column(subscription_status_enum, nullable=False, default=SubscriptionStatus.ACTIVE)
+
+    # Stripe identifiers
+    stripe_customer_id = Column(String(255), nullable=True, unique=True)
+    stripe_subscription_id = Column(String(255), nullable=True, unique=True)
+    stripe_price_id = Column(String(255), nullable=True)
+
+    # Plan limits
+    max_projects = Column(Integer, nullable=False, default=1)
+    max_scans_per_day = Column(Integer, nullable=False, default=5)
+    max_assets_per_project = Column(Integer, nullable=False, default=100)
+    max_monitoring_schedules = Column(Integer, nullable=False, default=1)
+
+    # Billing cycle
+    current_period_start = Column(DateTime, nullable=True)
+    current_period_end = Column(DateTime, nullable=True)
+    cancel_at_period_end = Column(Boolean, nullable=False, default=False)
+
+    # Credits included in plan
+    monthly_credits = Column(Integer, nullable=False, default=100)
+    credits_used_this_period = Column(Integer, nullable=False, default=0)
+
+    created_at = Column(DateTime, nullable=False, default=sa.func.now())
+    updated_at = Column(DateTime, nullable=False, default=sa.func.now(), onupdate=sa.func.now())
+
+    # Relationships
+    workspace = relationship("Workspace", back_populates="subscription")
+
+
+class CreditBalance(Base):
+    """Credit balance and transaction history.
+
+    Credits are consumed for scan operations, AI analysis, and exports.
+    Each transaction is tracked for audit purposes.
+    """
+
+    __tablename__ = "credit_balances"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    workspace_id = Column(String(36), ForeignKey("workspaces.id"), nullable=False, index=True)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
+
+    # Balance
+    balance = Column(Integer, nullable=False, default=0)
+    total_granted = Column(Integer, nullable=False, default=0)
+    total_purchased = Column(Integer, nullable=False, default=0)
+    total_consumed = Column(Integer, nullable=False, default=0)
+
+    created_at = Column(DateTime, nullable=False, default=sa.func.now())
+    updated_at = Column(DateTime, nullable=False, default=sa.func.now(), onupdate=sa.func.now())
+
+    # Relationships
+    user = relationship("User")
+    transactions = relationship("CreditTransaction", back_populates="balance", cascade="all, delete-orphan")
+
+
+class CreditTransaction(Base):
+    """Individual credit transaction for audit trail."""
+
+    __tablename__ = "credit_transactions"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    balance_id = Column(String(36), ForeignKey("credit_balances.id"), nullable=False, index=True)
+    workspace_id = Column(String(36), ForeignKey("workspaces.id"), nullable=False)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
+
+    credit_type = Column(credit_type_enum, nullable=False)
+    amount = Column(Integer, nullable=False, comment="Positive for grants/purchases, negative for consumption")
+    description = Column(String(500), nullable=True)
+    reference_id = Column(String(36), nullable=True, comment="ID of related scan/finding/export")
+
+    created_at = Column(DateTime, nullable=False, default=sa.func.now())
+
+    # Relationships
+    balance = relationship("CreditBalance", back_populates="transactions")
+    workspace = relationship("Workspace")
+    user = relationship("User")
+
+
+class DuplicatePrediction(Base):
+    """Tracks predicted duplicate findings before report export.
+
+    When a report is about to be exported, this model stores predictions
+    of which findings might be duplicates of publicly disclosed vulnerabilities.
+    Users must review these predictions before the report is sent.
+    """
+
+    __tablename__ = "duplicate_predictions"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    finding_id = Column(String(36), ForeignKey("findings.id"), nullable=False, index=True)
+    project_id = Column(String(36), ForeignKey("projects.id"), nullable=False)
+    workspace_id = Column(String(36), ForeignKey("workspaces.id"), nullable=False)
+
+    # Prediction details
+    predicted_duplicate = Column(Boolean, nullable=False, default=False)
+    confidence_score = Column(Float, nullable=False, default=0.0, comment="0.0-1.0 confidence")
+    similar_report_url = Column(String(2000), nullable=True, comment="URL of potentially duplicate report")
+    similar_report_source = Column(String(100), nullable=True, comment="hackerone, bugcrowd, cve, etc.")
+    similar_report_title = Column(String(500), nullable=True)
+    disclosed_at = Column(DateTime, nullable=True, comment="When the similar report was disclosed")
+
+    # User review
+    reviewed = Column(Boolean, nullable=False, default=False)
+    is_duplicate = Column(Boolean, nullable=True, comment="User's determination after review")
+    review_notes = Column(Text, nullable=True)
+
+    created_at = Column(DateTime, nullable=False, default=sa.func.now())
+    updated_at = Column(DateTime, nullable=False, default=sa.func.now(), onupdate=sa.func.now())
+
+    # Relationships
+    finding = relationship("Finding")
+    project = relationship("Project")
+    workspace = relationship("Workspace")
 
 
 class ReconResult(Base):

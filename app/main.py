@@ -169,6 +169,18 @@ def create_app() -> FastAPI:
 
     app.include_router(review_router, prefix="/api/v1", tags=["review-gate"])
 
+    from app.api.v1.workspaces import router as workspaces_router
+
+    app.include_router(workspaces_router, prefix="/api/v1/workspaces", tags=["workspaces"])
+
+    from app.api.v1.billing import router as billing_router
+
+    app.include_router(billing_router, prefix="/api/v1/billing", tags=["billing"])
+
+    from app.api.v1.duplicate_prediction import router as dup_router
+
+    app.include_router(dup_router, prefix="/api/v1", tags=["duplicate-prediction"])
+
     # Temporary me endpoint for auth testing
     @app.get("/api/v1/me", tags=["auth"])
     async def get_me(current_user: User = Depends(get_current_user)) -> dict:
