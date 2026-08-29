@@ -11,7 +11,7 @@ import json
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -52,6 +52,7 @@ async def get_report_summary(
 @router.get("/{project_id}/export")
 async def export_report(
     project_id: str,
+    request: Request,
     format: str = Query("json", description="Export format: json, csv, html"),
     engagement_id: Optional[str] = Query(None, description="Filter by engagement ID"),
     min_severity: str = Query("high", description="Minimum severity: critical, high, medium, low, info"),
@@ -86,6 +87,25 @@ async def export_report(
         )
 
     service = ReportService(db)
+
+    # Audit export before generating (best-effort)
+    try:
+        from app.services.audit_service import AuditService as _AS2
+        ws_id = project.workspace_id if hasattr(project, "workspace_id") else None
+        await _AS2.log_export(
+            db, project_id=project_id, workspace_id=ws_id,
+            user_id=current_user.id, export_format=format.lower(),
+            request=request,
+        )
+        # Dispatch webhook event
+        if ws_id:
+            try:
+                from app.services.custom_webhook_service import CustomWebhookService as _CW2
+                await _CW2.dispatch(db, ws_id, "export.created", {"project_id": project_id, "format": format.lower(), "min_severity": min_severity, "via": "jwt"})
+            except Exception:
+                pass
+    except Exception:
+        pass
 
     if format.lower() == "json":
         json_str = await service.export_json(

@@ -181,6 +181,23 @@ def create_app() -> FastAPI:
 
     app.include_router(dup_router, prefix="/api/v1", tags=["duplicate-prediction"])
 
+    # Phase 10: Public API + API Keys + Custom Webhooks + Audit Logging
+    from app.api.v1.api_keys import router as api_keys_router
+
+    app.include_router(api_keys_router, prefix="/api/v1/api-keys", tags=["api-keys"])
+
+    from app.api.v1.custom_webhooks import router as custom_webhooks_router
+
+    app.include_router(custom_webhooks_router, prefix="/api/v1", tags=["custom-webhooks"])
+
+    from app.api.v1.audit_logs import router as audit_router
+
+    app.include_router(audit_router, prefix="/api/v1", tags=["audit-logs"])
+
+    from app.api.v1.public_api import router as public_api_router
+
+    app.include_router(public_api_router, prefix="/api/v1/public", tags=["public-api"])
+
     # Temporary me endpoint for auth testing
     @app.get("/api/v1/me", tags=["auth"])
     async def get_me(current_user: User = Depends(get_current_user)) -> dict:

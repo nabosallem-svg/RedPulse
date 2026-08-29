@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
 
@@ -14,6 +15,7 @@ async def start_vuln_scan(
     engagement_id: str,
     targets: List[str],
     template_path: Optional[str] = None,
+    request: Request = None,
     db: AsyncSession = Depends(get_db),
     current_user = Depends(get_current_user),
 ) -> dict:
@@ -24,6 +26,30 @@ async def start_vuln_scan(
     """
     scanner = VulnScanner(db=db, current_user=current_user, engagement_id=engagement_id)
     result = await scanner.start_scan_job(targets=targets, template_path=template_path)
+
+    # Audit log (best-effort)
+    try:
+        from app.services.audit_service import AuditService
+        from app.db.models import Engagement, Project
+        eng_q = await db.execute(select(Engagement).where(Engagement.id == engagement_id))
+        eng = eng_q.scalar_one_or_none()
+        proj = None
+        ws_id = None
+        proj_id = None
+        if eng:
+            proj_q = await db.execute(select(Project).where(Project.id == eng.project_id))
+            proj = proj_q.scalar_one_or_none()
+            ws_id = proj.workspace_id if proj else None
+            proj_id = proj.id if proj else None
+        await AuditService.log(
+            db, action="scan.create", resource_type="scan",
+            user_id=getattr(current_user, "id", None), workspace_id=ws_id, project_id=proj_id,
+            details={"targets": targets[:5], "count": len(targets), "template": template_path, "engagement_id": engagement_id},
+            request=request,
+        )
+    except Exception:
+        pass
+
     return result
 
 

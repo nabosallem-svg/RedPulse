@@ -6,7 +6,7 @@ All endpoints enforce scope validation before execution.
 
 import logging
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -71,6 +71,7 @@ async def _verify_job_access(
 @router.post("/jobs", response_model=APIResponse, status_code=status.HTTP_201_CREATED)
 async def create_recon_job(
     data: ReconJobCreate,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -111,8 +112,46 @@ async def create_recon_job(
     await db.commit()
     await db.refresh(job)
 
+    # Audit log scan creation (non-blocking)
+    try:
+        from app.services.audit_service import AuditService
+        # Resolve workspace/project for audit scope
+        proj_result = await db.execute(select(Project).where(Project.id == engagement.project_id))
+        proj = proj_result.scalar_one_or_none()
+        ws_id = proj.workspace_id if proj else None
+        await AuditService.log(
+            db, action="scan.create", resource_type="scan", resource_id=job.id,
+            user_id=current_user.id, workspace_id=ws_id, project_id=engagement.project_id,
+            details={"tool": data.tool, "target": data.target, "engagement_id": data.engagement_id},
+            request=request, status="success",
+        )
+    except Exception:
+        pass
+
     # Execute job (scope validated inside worker)
     job = await worker.run_job(job.id, db, current_user)
+
+    # Audit scan completion/failure + webhook dispatch (best-effort)
+    try:
+        from app.services.audit_service import AuditService as _AS
+        from app.services.custom_webhook_service import CustomWebhookService as _CW
+        proj_result = await db.execute(select(Project).where(Project.id == engagement.project_id))
+        proj = proj_result.scalar_one_or_none()
+        ws_id2 = proj.workspace_id if proj else None
+        await _AS.log(
+            db, action="scan.complete" if job.status == ReconJobStatus.COMPLETED else "scan.fail",
+            resource_type="scan", resource_id=job.id,
+            user_id=current_user.id, workspace_id=ws_id2, project_id=engagement.project_id,
+            details={"tool": data.tool, "target": data.target, "status": str(job.status.value if hasattr(job.status, "value") else job.status)},
+            request=request, status="success" if job.status == ReconJobStatus.COMPLETED else "failure",
+        )
+        if ws_id2 and job.status == ReconJobStatus.COMPLETED:
+            try:
+                await _CW.dispatch(db, ws_id2, "scan.completed", {"scan_id": job.id, "target": data.target, "tool": data.tool, "status": str(job.status.value if hasattr(job.status, "value") else job.status), "via": "jwt"})
+            except Exception:
+                pass
+    except Exception:
+        pass
 
     return APIResponse(
         success=job.status == ReconJobStatus.COMPLETED,

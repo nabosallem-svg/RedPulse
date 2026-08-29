@@ -852,3 +852,109 @@ class MonitoringSchedule(Base):
     # Relationships
     project = relationship("Project")
     user = relationship("User")
+
+
+# ----- Phase 10: Public API, Custom Webhooks & Audit Logging -----
+
+
+class ApiKey(Base):
+    """API Key for Public API access.
+
+    Keys are stored as SHA-256 hashes; only the prefix is stored in plain text
+    for identification. The full key is shown once at creation time.
+    Supports scoped access and expiration.
+    """
+
+    __tablename__ = "api_keys"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    workspace_id = Column(String(36), ForeignKey("workspaces.id"), nullable=True, index=True)
+
+    name = Column(String(255), nullable=False, comment="Human-readable key name")
+    prefix = Column(String(20), nullable=False, index=True, comment="Visible prefix e.g. rp_abc123")
+    key_hash = Column(String(64), nullable=False, unique=True, index=True, comment="SHA-256 of full key")
+    scopes = Column(JSON, nullable=False, default=lambda: ["read"], comment="List of scopes")
+
+    is_active = Column(Boolean, nullable=False, default=True)
+    expires_at = Column(DateTime, nullable=True)
+    last_used_at = Column(DateTime, nullable=True)
+
+    created_at = Column(DateTime, nullable=False, default=sa.func.now())
+    updated_at = Column(DateTime, nullable=False, default=sa.func.now(), onupdate=sa.func.now())
+
+    # Relationships
+    user = relationship("User")
+    workspace = relationship("Workspace")
+
+
+class CustomWebhook(Base):
+    """Custom Webhook for workspace-level event delivery.
+
+    Distinct from WebhookConfig (project alerts). Supports HMAC signing,
+    custom headers, retry, and event filtering.
+    """
+
+    __tablename__ = "custom_webhooks"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    workspace_id = Column(String(36), ForeignKey("workspaces.id"), nullable=False, index=True)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
+
+    name = Column(String(255), nullable=False)
+    url = Column(String(2000), nullable=False)
+    secret = Column(String(255), nullable=True, comment="HMAC signing secret (stored plain for dispatch)")
+    events = Column(JSON, nullable=False, default=lambda: ["scan.completed"], comment="Subscribed events")
+
+    is_active = Column(Boolean, nullable=False, default=True)
+    headers = Column(JSON, nullable=True, comment="Custom HTTP headers")
+
+    # Delivery tracking
+    last_triggered_at = Column(DateTime, nullable=True)
+    last_status = Column(String(20), nullable=True, comment="success, failed")
+    failure_count = Column(Integer, nullable=False, default=0)
+
+    created_at = Column(DateTime, nullable=False, default=sa.func.now())
+    updated_at = Column(DateTime, nullable=False, default=sa.func.now(), onupdate=sa.func.now())
+
+    # Relationships
+    workspace = relationship("Workspace")
+    user = relationship("User")
+
+
+class AuditLog(Base):
+    """Comprehensive audit trail for scans, exports, and key operations.
+
+    Records every sensitive action with actor, resource, timing, and context
+    for compliance and forensics. Immutable append-only.
+    """
+
+    __tablename__ = "audit_logs"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+
+    # Actor
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=True, index=True)
+    api_key_id = Column(String(36), ForeignKey("api_keys.id"), nullable=True, index=True)
+
+    # Scope
+    workspace_id = Column(String(36), ForeignKey("workspaces.id"), nullable=True, index=True)
+    project_id = Column(String(36), ForeignKey("projects.id"), nullable=True, index=True)
+
+    # Action
+    action = Column(String(100), nullable=False, index=True, comment="e.g. scan.create, export.json")
+    resource_type = Column(String(50), nullable=False, index=True, comment="scan, export, project, api_key, webhook")
+    resource_id = Column(String(36), nullable=True, index=True)
+
+    details = Column(JSON, nullable=True, comment="Extra context: target, severity, format, etc.")
+    ip_address = Column(String(45), nullable=True)
+    user_agent = Column(String(500), nullable=True)
+    status = Column(String(20), nullable=False, default="success", comment="success, failure")
+
+    created_at = Column(DateTime, nullable=False, default=sa.func.now(), index=True)
+
+    # Relationships
+    user = relationship("User")
+    api_key = relationship("ApiKey")
+    workspace = relationship("Workspace")
+    project = relationship("Project")

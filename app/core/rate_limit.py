@@ -62,6 +62,10 @@ RATE_LIMITS = {
     "report_export": "10/minute",
     "webhook_test": "2/minute",
     "monitoring_run": "2/minute",
+    "public_api": "100/minute",
+    "api_keys": "20/minute",
+    "custom_webhooks": "20/minute",
+    "audit_logs": "60/minute",
     "default_api": "60/minute",
     "read_only_api": "120/minute",
 }

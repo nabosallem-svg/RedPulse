@@ -5,7 +5,7 @@ Supports both synchronous and async (Celery background) execution.
 """
 
 import logging
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db, get_current_user
@@ -22,7 +22,7 @@ router = APIRouter(tags=["pipeline"])
 @router.post("/run", response_model=APIResponse, status_code=status.HTTP_200_OK)
 @limiter.limit(RATE_LIMITS["pipeline_run"])
 async def run_pipeline(
-    request,
+    request: Request,
     data: PipelineRunRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -104,6 +104,23 @@ async def run_pipeline(
         auth_headers=data.auth_headers,
         auth_cookies=data.auth_cookies,
     )
+
+    # Audit pipeline scan (best-effort)
+    try:
+        from app.services.audit_service import AuditService as _AS3
+        ws_id = engagement.project_id  # placeholder fallback
+        # Resolve workspace properly
+        proj_q = await db.execute(select(Project).where(Project.id == engagement.project_id))
+        proj_obj = proj_q.scalar_one_or_none()
+        ws_actual = proj_obj.workspace_id if proj_obj and hasattr(proj_obj, "workspace_id") else None
+        await _AS3.log(
+            db, action="scan.create", resource_type="scan", user_id=current_user.id,
+            workspace_id=ws_actual, project_id=str(engagement.project_id),
+            details={"target": data.target, "tools": data.recon_tools, "engagement_id": data.engagement_id, "via": "pipeline"},
+            request=request,
+        )
+    except Exception:
+        pass
 
     return APIResponse(
         success=pipeline_result.status != "failed",
