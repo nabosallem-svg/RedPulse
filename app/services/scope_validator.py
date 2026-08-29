@@ -1,11 +1,12 @@
-﻿"""RedPulse - Scope Validator.
+﻿"""RedPulse - Scope Validator (Enhanced).
 
 Single choke-point function that every future phase (recon, scanning) must call
 before touching any target. Enforces scope boundaries with strict ordering:
 1. Global exclusion check (always first, always wins)
-2. Engagement has valid, non-expired authorization
-3. Host matches at least one include ScopeRule
-4. Host does not match any exclude ScopeRule
+2. Per-user rate limit check
+3. Engagement has valid, non-expired authorization
+4. Host matches at least one include ScopeRule
+5. Host does not match any exclude ScopeRule
 
 Raises ScopeViolation on any failure. Returns None (silently) if allowed.
 Controlled Pentesting: only targeted scanning via validate_target, no destructive exploits.
@@ -21,7 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Engagement, Authorization, Project, ScopeRule, User
-from app.services.global_exclusions import is_excluded
+from app.services.global_exclusions import is_excluded, get_exclusion_reason
 
 
 class ScopeViolation(Exception):
@@ -57,9 +58,22 @@ async def validate_target(engagement_id: str, host_or_url: str, db: AsyncSession
     """
     # ---- 1. Global exclusion check (always first, always wins) ----
     if is_excluded(host_or_url):
+        reason = get_exclusion_reason(host_or_url) or "Target is in global exclusion list"
         raise ScopeViolation(
-            f"Target host '{host_or_url}' is in the global exclusion list "
-            f"(.gov/.mil/.edu are always blocked for scanning)"
+            f"Target '{host_or_url}' is in the global exclusion list: {reason}"
+        )
+
+    # ---- 1b. Per-user rate limit check ----
+    from app.services.user_rate_limiter import rate_limiter, RateLimitExceeded
+    allowed, retry_after = rate_limiter.check_rate_limit(
+        user_id=current_user.id,
+        resource="scans",
+        window="hour",
+    )
+    if not allowed:
+        raise ScopeViolation(
+            f"Rate limit exceeded: too many scans this hour. "
+            f"Retry after {retry_after} seconds."
         )
 
     # ---- 2. Engagement exists and belongs to user's project ----

@@ -165,6 +165,10 @@ def create_app() -> FastAPI:
 
     app.include_router(webhooks_router, prefix="/api/v1", tags=["webhooks", "monitoring"])
 
+    from app.api.v1.review_gate import router as review_router
+
+    app.include_router(review_router, prefix="/api/v1", tags=["review-gate"])
+
     # Temporary me endpoint for auth testing
     @app.get("/api/v1/me", tags=["auth"])
     async def get_me(current_user: User = Depends(get_current_user)) -> dict:

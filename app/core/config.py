@@ -77,8 +77,13 @@ class Settings(BaseSettings):
 
     # Scanner configuration
     NUCLEI_BIN: str = Field(default="nuclei", env="NUCLEI_BIN")
-    SCANNER_TIMEOUT: int = Field(default=60, env="SCANNER_TIMEOUT")  # seconds
+    SCANNER_TIMEOUT: int = Field(default=60, env="SCANNER_TIMEOUT")
     SCANNER_MAX_WORKERS: int = Field(default=4, env="SCANNER_MAX_WORKERS")
+
+    # Bug bounty platform API tokens (optional)
+    HACKERONE_API_TOKEN: str = Field(default="", env="HACKERONE_API_TOKEN")
+    HACKERONE_USERNAME: str = Field(default="", env="HACKERONE_USERNAME")
+    BUGCROWD_API_TOKEN: str = Field(default="", env="BUGCROWD_API_TOKEN")
 
 
 # Global settings instance - loaded from .env or using defaults
