@@ -28,14 +28,13 @@ export default function SignupPage() {
   async function onSubmit(data: Form) {
     setError(null); setLoading(true);
     try {
-      const res = await api.post("/api/v1/auth/signup", { email: data.email, password: data.password, full_name: data.full_name });
-      const { access_token, refresh_token } = res.data;
+      await api.post("/api/v1/auth/signup", { email: data.email, password: data.password, full_name: data.full_name });
       let user = null;
       try {
-        const me = await api.get("/api/v1/auth/me", { headers: { Authorization: `Bearer ${access_token}` } });
+        const me = await api.get("/api/v1/auth/me");
         user = me.data;
       } catch {}
-      setAuthToken(access_token, refresh_token, user ?? { email: data.email, full_name: data.full_name });
+      setAuthToken(undefined, undefined, user ?? { email: data.email, full_name: data.full_name });
       router.push("/dashboard");
     } catch (e: any) {
       setError(e?.response?.data?.detail || "Signup failed");

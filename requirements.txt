@@ -18,3 +18,4 @@ reportlab
 jinja2
 aiosqlite
 psycopg2-binary
+stripe

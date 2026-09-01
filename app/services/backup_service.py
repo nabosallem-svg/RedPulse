@@ -114,7 +114,10 @@ class BackupService:
                 raise ValueError(f"Unsupported DB URL: {db_url}")
 
         except Exception as e:
-            # Fallback: create a dummy gzipped SQL file with metadata (ensures backup always succeeds for observability)
+            if is_postgres:
+                if filepath.exists():
+                    filepath.unlink(missing_ok=True)
+                raise RuntimeError(f"Postgres backup failed: {e}") from e
             logger.warning("backup_fallback_dummy reason=%s", e)
             dummy = f"-- RedPulse backup fallback dummy\n-- Generated: {datetime.now(timezone.utc).isoformat()}\n-- DB: {db_url}\n-- Reason: {e}\nSELECT 1;\n".encode()
             with gzip.open(filepath, "wb") as gz:

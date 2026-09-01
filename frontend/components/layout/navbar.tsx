@@ -10,8 +10,12 @@ export function Navbar() {
   const [email, setEmail] = useState<string | null>(null);
   useEffect(() => {
     try {
-      const raw = localStorage.getItem("rp_user");
+      const raw = sessionStorage.getItem("rp_user");
       if (raw) setEmail(JSON.parse(raw)?.email ?? null);
+      else {
+        const ls = localStorage.getItem("rp_user");
+        if (ls) setEmail(JSON.parse(ls)?.email ?? null);
+      }
     } catch {}
   }, []);
   return (

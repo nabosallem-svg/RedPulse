@@ -86,10 +86,10 @@ export default function FindingsPage() {
   }, [engagementId]);
 
   const counts = {
-    CRITICAL: findings.filter((f) => f.severity === "CRITICAL").length,
-    HIGH: findings.filter((f) => f.severity === "HIGH").length,
-    MEDIUM: findings.filter((f) => f.severity === "MEDIUM").length,
-    LOW: findings.filter((f) => f.severity === "LOW").length,
+    CRITICAL: findings.filter((f) => String(f.severity).toUpperCase() === "CRITICAL").length,
+    HIGH: findings.filter((f) => String(f.severity).toUpperCase() === "HIGH").length,
+    MEDIUM: findings.filter((f) => String(f.severity).toUpperCase() === "MEDIUM").length,
+    LOW: findings.filter((f) => String(f.severity).toUpperCase() === "LOW").length,
   };
 
   async function verifyFix(f: Finding) {
@@ -118,9 +118,11 @@ export default function FindingsPage() {
   async function downloadPdf() {
     if (!projectId) return;
     try {
+      const pdfTargets = findings.length ? [...new Set(findings.map((f) => f.host).filter((h) => h && h !== "-" && h !== "—" && h.trim() !== "") as string[])] : [];
+      const finalTargets = pdfTargets.length ? pdfTargets : ["testphp.vulnweb.com"];
       const res = await api.post(
         `/api/v1/projects/${projectId}/pentest/report?format=pdf`,
-        { engagement_id: engagementId, targets: [], format: "json" },
+        { engagement_id: engagementId, targets: finalTargets, format: "pdf" },
         { responseType: "blob" }
       );
       const blob = new Blob([res.data], { type: "application/pdf" });
@@ -211,13 +213,13 @@ export default function FindingsPage() {
                           <Button size="sm" onClick={() => verifyFix(f)} disabled={verifying === f.fingerprint}>{verifying === f.fingerprint ? <Loader2 className="h-3 w-3 animate-spin" /> : "Verify Fix"}</Button>
                         </td>
                       </tr>
-                      {expanded === f.fingerprint && f.poc && (
+                      {expanded === f.fingerprint && (
                         <tr className="bg-[var(--muted)]/20"><td colSpan={5} className="p-3">
                           <div className="space-y-2">
                             <div className="text-xs font-medium">Passive PoC — Raw HTTP</div>
-                            {f.poc.request && <pre className="bg-[#0a0a0a] text-[#e5e7eb] p-3 rounded text-xs overflow-auto max-h-40 whitespace-pre-wrap break-all border border-[var(--border)]">{f.poc.request}</pre>}
-                            {f.poc.response && <pre className="bg-[#0a0a0a] text-[#e5e7eb] p-3 rounded text-xs overflow-auto max-h-40 whitespace-pre-wrap break-all border border-[var(--border)]">{f.poc.response}</pre>}
-                            {f.poc.is_passive && <p className="text-[10px] text-[var(--muted-foreground)]">* Passive — no destructive payload executed.</p>}
+                            {f.poc?.request ? <pre className="bg-[#0a0a0a] text-[#e5e7eb] p-3 rounded text-xs overflow-auto max-h-40 whitespace-pre-wrap break-all border border-[var(--border)]">{f.poc.request}</pre> : f.evidence ? <pre className="bg-[#0a0a0a] text-[#e5e7eb] p-3 rounded text-xs overflow-auto max-h-40 whitespace-pre-wrap break-all border border-[var(--border)]">{f.evidence}</pre> : <p className="text-xs text-[var(--muted-foreground)]">No PoC available. Finding: {f.title || f.template_id} — check Evidence field.</p>}
+                            {f.poc?.response && <pre className="bg-[#0a0a0a] text-[#e5e7eb] p-3 rounded text-xs overflow-auto max-h-40 whitespace-pre-wrap break-all border border-[var(--border)]">{f.poc.response}</pre>}
+                            <p className="text-[10px] text-[var(--muted-foreground)]">* Passive — no destructive payload executed.</p>
                           </div>
                         </td></tr>
                       )}

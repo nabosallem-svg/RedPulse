@@ -127,6 +127,10 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        # NEXT_PUBLIC_ vars are baked at Next.js build time — pass via build arg for dynamic per-env (local vs prod)
+        # Local: http://localhost:8000 (default), Prod: https://redpulse.dev or Vercel URL via .env / CI build arg
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
     image: redpulse-frontend:latest
     restart: unless-stopped
     depends_on:
@@ -136,6 +140,7 @@ services:
       - .env
     environment:
       NODE_ENV: ${NODE_ENV:-production}
+      # Runtime fallback (for non-NEXT_PUBLIC vars); NEXT_PUBLIC_API_URL is already baked at build, but keep for logs
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
       PORT: 3000
       HOSTNAME: "0.0.0.0"

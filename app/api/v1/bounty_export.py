@@ -66,7 +66,7 @@ async def export_bounty(
     lines.append("")
     lines.append(f"**Engagement:** {engagement.name} (`{engagement.id}`)")
     lines.append(f"**Project:** {project.name} (`{project.id}`)")
-    lines.append(f"**Generated:** {__import__('datetime').datetime.utcnow().isoformat()}Z")
+    lines.append(f"**Generated:** {__import__('datetime').datetime.now(timezone.utc).isoformat()}Z")
     lines.append(f"**Engine:** Generated via RedPulse Security Engine")
     lines.append("")
     lines.append("## Summary")

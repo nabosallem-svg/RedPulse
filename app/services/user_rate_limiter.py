@@ -98,6 +98,7 @@ class UserRateLimiter:
 
     def _check_redis(self, redis_client, key: str, limit: int, window_seconds: int, now: int) -> Tuple[bool, int]:
         """Check rate limit using Redis."""
+        limit = int(limit)
         try:
             pipe = redis_client.pipeline()
             pipe.incr(key)
@@ -116,6 +117,7 @@ class UserRateLimiter:
 
     def _check_memory(self, key: str, limit: int, window_seconds: int, now: int) -> Tuple[bool, int]:
         """Check rate limit using in-memory store (single worker only)."""
+        limit = int(limit)
         # Clean up old entries
         cutoff = now - window_seconds * 2
         self._memory_store = {k: v for k, v in self._memory_store.items() if v["last"] > cutoff}

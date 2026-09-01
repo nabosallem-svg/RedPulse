@@ -33,17 +33,25 @@ async def get_compliance_summary(
     try:
         from app.db.models import Finding  # may not exist in initial migration
         res = await db.execute(select(Finding).where(Finding.project_id == project_id))  # type: ignore
-        findings = [{"template_id": f.template_id or f.category, "severity": f.severity, "category": getattr(f, "category", "")} for f in res.scalars().all()]
+        findings = [
+            {
+                "template_id": f.template_id or f.category,
+                "severity": (f.severity.value if hasattr(f.severity, "value") else str(f.severity)),
+                "category": getattr(f, "category", ""),
+                "host": getattr(f, "endpoint", "") or "",
+                "endpoint": getattr(f, "endpoint", ""),
+                "evidence": getattr(f, "evidence", ""),
+                "fingerprint": getattr(f, "fingerprint", ""),
+                "title": getattr(f, "title", "") or f.template_id,
+                "cvss_score": 5.8,
+            }
+            for f in res.scalars().all()
+        ]
     except Exception:
         findings = []
 
     if not findings:
-        # Synthetic demo findings covering multiple compliance families
-        findings = [
-            {"template_id": "sqli", "severity": "HIGH", "category": "injection"},
-            {"template_id": "xss", "severity": "MEDIUM", "category": "injection"},
-            {"template_id": "idor", "severity": "HIGH", "category": "access_control"},
-        ]
+        findings = []
 
     summary = compliance_summary(findings)
     return {

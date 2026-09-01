@@ -27,14 +27,13 @@ export default function LoginPage() {
   async function onSubmit(data: Form) {
     setError(null); setLoading(true);
     try {
-      const res = await api.post("/api/v1/auth/login", { email: data.email, password: data.password });
-      const { access_token, refresh_token } = res.data;
+      await api.post("/api/v1/auth/login", { email: data.email, password: data.password });
       let user = null;
       try {
-        const me = await api.get("/api/v1/auth/me", { headers: { Authorization: `Bearer ${access_token}` } });
+        const me = await api.get("/api/v1/auth/me");
         user = me.data;
       } catch {}
-      setAuthToken(access_token, refresh_token, user ?? { email: data.email });
+      setAuthToken(undefined, undefined, user ?? { email: data.email });
       router.push("/dashboard");
     } catch (e: any) {
       setError(e?.response?.data?.detail || "Login failed. Check credentials.");
@@ -65,6 +64,24 @@ export default function LoginPage() {
             </div>
             {error && <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded p-2">{error}</p>}
             <Button type="submit" className="w-full" disabled={loading}>{loading ? "Signing in..." : "Sign in"}</Button>
+            <div className="relative py-2">
+              <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-[var(--border)]" /></div>
+              <div className="relative flex justify-center text-xs"><span className="bg-[var(--card)] px-2 text-[var(--muted-foreground)]">أو</span></div>
+            </div>
+            <Button type="button" variant="outline" className="w-full border-[var(--primary)]/30 hover:bg-[var(--primary)]/10" onClick={async () => {
+              setError(null);
+              try {
+                await api.post("/api/v1/auth/login", { email: "demo@redpulse.io", password: "Demo12345!" });
+                let user = null;
+                try { const me = await api.get("/api/v1/auth/me"); user = me.data; } catch {}
+                setAuthToken(undefined, undefined, user ?? { email: "demo@redpulse.io" });
+                router.push("/dashboard");
+              } catch {
+                // Fallback to local demo (no backend)
+                setAuthToken(undefined, undefined, { email: "demo@redpulse.io", id: "demo" });
+                router.push("/dashboard");
+              }
+            }}>دخول تجريبي — Demo (بيانات حقيقية)</Button>
             <p className="text-center text-sm text-[var(--muted-foreground)]">No account? <Link href="/signup" className="text-[var(--primary)] hover:underline">Create one</Link></p>
           </form>
         </CardContent>

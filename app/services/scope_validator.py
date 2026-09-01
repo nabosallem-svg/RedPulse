@@ -56,6 +56,13 @@ async def validate_target(engagement_id: str, host_or_url: str, db: AsyncSession
     Raises:
         ScopeViolation: If any check fails, with descriptive detail message
     """
+    # ---- Security: prevent test bypass in production ----
+    if os.getenv("ENVIRONMENT", "").lower() == "production":
+        raise ScopeViolation(
+            "Test bypass must never run in production. "
+            "Use ENVIRONMENT=test for testing or complete authorization properly."
+        )
+
     # ---- 1. Global exclusion check (always first, always wins) ----
     if is_excluded(host_or_url):
         reason = get_exclusion_reason(host_or_url) or "Target is in global exclusion list"
@@ -103,9 +110,9 @@ async def validate_target(engagement_id: str, host_or_url: str, db: AsyncSession
         select(Authorization).where(
             Authorization.engagement_id == engagement.id,
             Authorization.user_id == current_user.id,
-        )
+        ).limit(1)
     )
-    auth_row = result.scalar_one_or_none()
+    auth_row = result.scalars().first()
 
     if not auth_row:
         if _is_test_env:

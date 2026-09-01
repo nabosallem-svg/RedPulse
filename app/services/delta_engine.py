@@ -84,7 +84,7 @@ def calculate_delta(
         "assets": {"new": new_assets, "resolved": resolved_assets, "persistent": persistent_assets},
         "metrics": metrics,
         "delta_log": delta_log,
-        "generated_at": datetime.datetime.utcnow().isoformat() + "Z",
+        "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
     }
 
 
@@ -96,7 +96,7 @@ def generate_delta_alerts(
 ) -> List[Dict[str, Any]]:
     """Generate automated alert logs for delta."""
     alerts = []
-    now = datetime.datetime.utcnow().isoformat() + "Z"
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
     for f in new_findings or []:
         alerts.append({
             "type": "NEW_FINDING",

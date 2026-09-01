@@ -12,6 +12,7 @@ from urllib.parse import urlparse, urlunparse
 
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import NullPool
 
 from app.core.config import get_settings
 
@@ -49,16 +50,23 @@ def _force_ipv4(url: str) -> str:
 
 ASYNC_DATABASE_URL = _force_ipv4(ASYNC_DATABASE_URL)
 
-engine = create_async_engine(
-    ASYNC_DATABASE_URL,
+_is_sqlite = ASYNC_DATABASE_URL.startswith("sqlite")
+_engine_kwargs: dict = dict(
     echo=settings.ENVIRONMENT == "development",
-    pool_size=10,
-    max_overflow=20,
-    pool_timeout=30,
-    pool_recycle=3600,
     pool_pre_ping=True,
-    connect_args={"statement_cache_size": 0},
 )
+if _is_sqlite:
+    _engine_kwargs["poolclass"] = NullPool
+else:
+    _engine_kwargs.update(dict(
+        pool_size=10,
+        max_overflow=20,
+        pool_timeout=30,
+        pool_recycle=3600,
+        connect_args={"statement_cache_size": 0},
+    ))
+
+engine = create_async_engine(ASYNC_DATABASE_URL, **_engine_kwargs)
 
 # Create session factory
 async_session_factory = sessionmaker(

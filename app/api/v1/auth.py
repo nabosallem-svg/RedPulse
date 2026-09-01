@@ -94,7 +94,7 @@ async def signup(
         value=access_token,
         httponly=True,
         secure=False,  # set True in production with HTTPS (ENVIRONMENT=production)
-        samesite="strict",
+        samesite="lax",
         max_age=60 * 30,  # 30 min matches ACCESS_TOKEN_EXPIRE_MINUTES
         path="/",
     )
@@ -103,7 +103,7 @@ async def signup(
         value=refresh_token,
         httponly=True,
         secure=False,
-        samesite="strict",
+        samesite="lax",
         max_age=60 * 60 * 24 * 7,  # 7 days
         path="/api/v1/auth",
     )
@@ -153,7 +153,7 @@ async def login(
         value=access_token,
         httponly=True,
         secure=False,
-        samesite="strict",
+        samesite="lax",
         max_age=60 * 30,
         path="/",
     )
@@ -162,7 +162,7 @@ async def login(
         value=refresh_token,
         httponly=True,
         secure=False,
-        samesite="strict",
+        samesite="lax",
         max_age=60 * 60 * 24 * 7,
         path="/api/v1/auth",
     )

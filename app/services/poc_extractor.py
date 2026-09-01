@@ -47,7 +47,7 @@ def extract_poc(
         "response": _sanitize(response_dump or finding.get("raw_output") or finding.get("response") or ""),
         "is_passive": True,
         "is_ai": False,
-        "created_at": datetime.datetime.utcnow().isoformat() + "Z",
+        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
     }
     # Stable fingerprint for PoC dedup
     key = f"{host}|{template_id}|{poc['request'][:100]}"

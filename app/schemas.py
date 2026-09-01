@@ -1,11 +1,12 @@
-﻿"""RedPulse - Pydantic Schemas.
+"""RedPulse - Pydantic Schemas.
 
 Request/response schemas for the API layer. All schemas use Pydantic v2.
 """
 
 from typing import Optional, List, Dict, Any
 from datetime import datetime
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field
+from pydantic.functional_validators import field_validator
 
 
 # --- Authentication Schemas ---
@@ -26,7 +27,7 @@ class UserCreate(BaseModel):
     password: str = Field(..., min_length=8)
     full_name: Optional[str] = Field(None, max_length=100)
     
-    @validator("password")
+    @field_validator("password", mode="before")
     def password_must_be_strong(cls, v):
         """Validate password strength."""
         if len(v) < 8:
@@ -74,7 +75,7 @@ class OrganizationDB(OrganizationBase):
 
 class OrganizationMemberBase(BaseModel):
     """Base member schema."""
-    role: str = Field("viewer", max_length=20, comment="Owner, Admin, Analyst, Viewer")
+    role: str = Field("viewer", max_length=20, json_schema_extra={"description": "Owner, Admin, Analyst, Viewer"})
 
 
 class OrganizationMemberCreate(OrganizationMemberBase):
@@ -111,7 +112,7 @@ class ProjectUpdate(BaseModel):
     """Schema for updating a project."""
     name: Optional[str] = Field(None, max_length=255)
     description: Optional[str] = Field(None, max_length=500)
-    status: Optional[str] = Field(None, comment="active, paused, completed")
+    status: Optional[str] = Field(None, json_schema_extra={"description": "active, paused, completed"})
 
 
 class ProjectDB(ProjectBase):
@@ -127,8 +128,8 @@ class ProjectDB(ProjectBase):
 class ProjectScopeBase(BaseModel):
     """Base scope schema."""
     value: str = Field(..., max_length=255, description="Domain, subdomain, or CIDR")
-    scope_type: str = Field("domain", max_length=50, comment="domain, subdomain, host, cidr")
-    is_wildcard: bool = Field(False, comment="Whether this uses wildcard matching")
+    scope_type: str = Field("domain", max_length=50, json_schema_extra={"description": "domain, subdomain, host, cidr"})
+    is_wildcard: bool = Field(False, json_schema_extra={"description": "Whether this uses wildcard matching"})
 
 
 class ProjectScopeCreate(ProjectScopeBase):
@@ -152,7 +153,7 @@ class ScanBase(BaseModel):
     """Base scan schema."""
     name: str = Field(..., max_length=255, description="Human-readable scan name")
     description: Optional[str] = Field(None, max_length=500)
-    profile: str = Field("standard", max_length=50, comment="quick, standard, deep")
+    profile: str = Field("standard", max_length=50, json_schema_extra={"description": "quick, standard, deep"})
 
 
 class ScanCreate(ScanBase):
@@ -165,7 +166,7 @@ class ScanUpdate(BaseModel):
     name: Optional[str] = Field(None, max_length=255)
     description: Optional[str] = Field(None, max_length=500)
     profile: Optional[str] = Field(None, max_length=50)
-    status: Optional[str] = Field(None, comment="pending, running, completed, failed, cancelled")
+    status: Optional[str] = Field(None, json_schema_extra={"description": "pending, running, completed, failed, cancelled"})
 
 
 class ScanDB(ScanBase):
@@ -181,8 +182,8 @@ class ScanDB(ScanBase):
 
 class ScanJobBase(BaseModel):
     """Base scan job schema."""
-    status: str = Field("pending", max_length=20, comment="pending, running, completed, failed, cancelled")
-    progress_percent: int = Field(0, ge=0, le=100, comment="0-100 progress")
+    status: str = Field("pending", max_length=20, json_schema_extra={"description": "pending, running, completed, failed, cancelled"})
+    progress_percent: int = Field(0, ge=0, le=100, json_schema_extra={"description": "0-100 progress"})
     
 
 class ScanJobCreate(BaseModel):
@@ -211,15 +212,15 @@ class ScanJobDB(ScanJobBase):
 class AssetBase(BaseModel):
     """Base asset schema."""
     hostname: str = Field(..., max_length=255, description="Hostname or IP address")
-    scheme: str = Field("http", max_length=10, comment="http, https")
-    port: Optional[int] = Field(None, ge=1, le=65535, comment="Port number")
-    ip: Optional[str] = Field(None, max_length=45, comment="IP address (IPv4 or IPv6)")
+    scheme: str = Field("http", max_length=10, json_schema_extra={"description": "http, https"})
+    port: Optional[int] = Field(None, ge=1, le=65535, json_schema_extra={"description": "Port number"})
+    ip: Optional[str] = Field(None, max_length=45, json_schema_extra={"description": "IP address (IPv4 or IPv6)"})
 
 
 class AssetCreate(AssetBase):
     """Schema for creating an asset."""
     project_id: str = Field(..., max_length=255)
-    source: str = Field("recon", max_length=100, comment="How asset was discovered")
+    source: str = Field("recon", max_length=100, json_schema_extra={"description": "How asset was discovered"})
 
 
 class AssetUpdate(BaseModel):
@@ -236,7 +237,7 @@ class AssetUpdate(BaseModel):
     is_active: Optional[bool] = Field(None)
     in_scope: Optional[str] = Field(
         None,
-        comment="in_scope, out_of_scope, pending_review",
+        json_schema_extra={"description": "in_scope, out_of_scope, pending_review"},
     )
 
 
@@ -268,7 +269,7 @@ class AssetDB(AssetBase):
 
 class AssetInScopeQuery(BaseModel):
     """Query parameter for in-scope assets."""
-    in_scope: Optional[str] = Field(None, comment="in_scope, out_of_scope, pending_review")
+    in_scope: Optional[str] = Field(None, json_schema_extra={"description": "in_scope, out_of_scope, pending_review"})
 
 
 # --- Asset Type Schemas ---
@@ -293,14 +294,14 @@ class CorrelationGroup(BaseModel):
 
 class SeverityConfidencePriority(BaseModel):
     """Separate severity, confidence, and priority values."""
-    severity: str = Field(..., comment="HIGH, MEDIUM, LOW")
+    severity: str = Field(..., json_schema_extra={"description": "HIGH, MEDIUM, LOW"})
     confidence: int = Field(ge=0, le=100, description="0-100 percentage")
     priority: int = Field(ge=0, le=100, description="Deterministic priority score")
 
 
 class PriorityScoreRequest(BaseModel):
     """Request to calculate priority score."""
-    severity: str = Field(..., comment="HIGH, MEDIUM, LOW")
+    severity: str = Field(..., json_schema_extra={"description": "HIGH, MEDIUM, LOW"})
     confidence: int = Field(ge=0, le=100, description="0-100 percentage")
     asset_criticality: int = Field(
         default=50, ge=0, le=100,
@@ -324,7 +325,7 @@ class AIAnalysisRequest(BaseModel):
     analysis_type: str = Field(
         "explain",
         max_length=50,
-        comment="explain, summarize, relate, suggest_verification, impact, remediation, report_draft",
+        json_schema_extra={"description": "explain, summarize, relate, suggest_verification, impact, remediation, report_draft"},
     )
 
 
@@ -348,7 +349,7 @@ class ReportBase(BaseModel):
     """Base report schema."""
     title: str = Field(..., max_length=255)
     description: Optional[str] = Field(None, max_length=500)
-    format: str = Field("html", max_length=20, comment="html, json")
+    format: str = Field("html", max_length=20, json_schema_extra={"description": "html, json"})
 
 
 class ReportCreate(ReportBase):
@@ -360,7 +361,7 @@ class ReportDB(ReportBase):
     """Report as stored in database."""
     id: str
     project_id: str
-    status: str = Field("draft", max_length=20, comment="draft, reviewed, published")
+    status: str = Field("draft", max_length=20, json_schema_extra={"description": "draft, reviewed, published"})
     generated_at: datetime
     generated_by: str = Field(..., max_length=255, description="User ID or system")
     
@@ -396,8 +397,8 @@ class ReportStatus(str):
 class MonitoringConfigBase(BaseModel):
     """Base monitoring configuration schema."""
     name: str = Field(max_length=255, default="Continuous Monitoring")
-    frequency: str = Field("daily", max_length=50, comment="every 6 hours, daily, weekly")
-    profile: str = Field("standard", max_length=50, comment="quick, standard, deep")
+    frequency: str = Field("daily", max_length=50, json_schema_extra={"description": "every 6 hours, daily, weekly"})
+    profile: str = Field("standard", max_length=50, json_schema_extra={"description": "quick, standard, deep"})
 
 
 class MonitoringConfigCreate(MonitoringConfigBase):
@@ -425,12 +426,12 @@ class MonitoringChangeDetected(BaseModel):
     """Schema for representing a detected change in monitoring."""
     change_type: str = Field(
         ...,
-        comment="new_asset, removed_asset, new_endpoint, technology_change, new_finding, reopened_finding",
+        json_schema_extra={"description": "new_asset, removed_asset, new_endpoint, technology_change, new_finding, reopened_finding"},
     )
     asset_id: Optional[str] = Field(None, max_length=36)
     finding_id: Optional[str] = Field(None, max_length=36)
     description: str
-    severity: str = Field(..., comment="HIGH, MEDIUM, LOW")
+    severity: str = Field(..., json_schema_extra={"description": "HIGH, MEDIUM, LOW"})
 
 
 # --- Notification Schemas ---
@@ -441,7 +442,7 @@ class NotificationBase(BaseModel):
     category: str = Field(
         ...,
         max_length=50,
-        comment="NEW_ASSET, IMPORTANT_CHANGE, HIGH_FINDING, CRITICAL_FINDING, SCAN_FAILED, SCAN_COMPLETED, REGRESSION",
+        json_schema_extra={"description": "NEW_ASSET, IMPORTANT_CHANGE, HIGH_FINDING, CRITICAL_FINDING, SCAN_FAILED, SCAN_COMPLETED, REGRESSION"},
     )
     title: str = Field(..., max_length=255)
     message: str

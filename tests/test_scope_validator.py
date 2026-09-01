@@ -165,7 +165,7 @@ async def test_expired_authorization_blocked(test_session):
         await validate_target(eng.id, "example.com", test_session, user)
 
     # Also test naive datetime (no tzinfo) branch
-    naive_past = datetime.utcnow() - timedelta(days=1)
+    naive_past = datetime.now(timezone.utc) - timedelta(days=1)
     # Create new engagement for naive test
     eng2 = await _create_engagement(test_session, proj, "Eng2")
     await _create_authorization(test_session, eng2, user, proj, verified=True, expires_at=naive_past)

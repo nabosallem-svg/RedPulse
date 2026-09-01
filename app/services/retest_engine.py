@@ -110,7 +110,7 @@ async def retest_finding(finding_id: str, db: AsyncSession, current_user: User) 
     fid_lower = finding["id"].lower()
     ev_lower = (finding.get("evidence") or "").lower()
     if "inconclusive" in fid_lower or "inconclusive" in ev_lower:
-        now = datetime.datetime.utcnow().isoformat() + "Z"
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
         logger.info(f"Retest {finding_id}: INCONCLUSIVE (needs review)")
         return {
             "finding_id": finding_id,
@@ -127,7 +127,7 @@ async def retest_finding(finding_id: str, db: AsyncSession, current_user: User) 
 
     still_vulnerable = await _micro_scan(finding)
 
-    now = datetime.datetime.utcnow().isoformat() + "Z"
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
     orm = finding.get("_orm")
 
     if not still_vulnerable:

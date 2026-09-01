@@ -321,7 +321,7 @@ class TestAuthBypass:
             await _make_scope_rule(session, engagement.id, "*.example.com")
 
             from app.services.scope_validator import validate_target, ScopeViolation
-            with pytest.raises(ScopeViolation, match="No authorization"):
+            with pytest.raises(ScopeViolation, match="Test bypass must never run in production"):
                 await validate_target(engagement.id, "sub.example.com", session, user)
         finally:
             os.environ.pop("ENVIRONMENT", None)

@@ -1,0 +1,13 @@
+import sqlite3
+conn = sqlite3.connect('dev.db')
+cur = conn.cursor()
+cur.execute("DELETE FROM authorizations WHERE engagement_id='a7acfa35-fc69-4c5f-8f02-debc46373b19' AND target_domain='example.com'")
+print(f"deleted {cur.rowcount} example.com auth")
+conn.commit()
+cur.execute("SELECT target_domain, verified FROM authorizations WHERE engagement_id='a7acfa35-fc69-4c5f-8f02-debc46373b19'")
+print(cur.fetchall())
+cur.execute("DELETE FROM scope_rules WHERE engagement_id='a7acfa35-fc69-4c5f-8f02-debc46373b19' AND pattern='example.com'")
+print(f"deleted {cur.rowcount} example.com scope")
+conn.commit()
+cur.execute("SELECT pattern, rule_type FROM scope_rules WHERE engagement_id='a7acfa35-fc69-4c5f-8f02-debc46373b19'")
+print(cur.fetchall())

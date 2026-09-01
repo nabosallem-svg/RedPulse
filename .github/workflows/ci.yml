@@ -91,8 +91,7 @@ jobs:
       - name: Run tests with coverage
         run: |
           python -m pytest tests/ -x -q --tb=short \
-            --cov=app --cov-report=xml --cov-report=term-missing \
-            -k "not test_scope_validator and not test_tenant_isolation"
+            --cov=app --cov-report=xml --cov-report=term-missing
         env:
           DATABASE_URL: postgresql+asyncpg://${{ env.POSTGRES_USER }}:${{ env.POSTGRES_PASSWORD }}@localhost:5432/${{ env.POSTGRES_DB }}
           REDIS_URL: redis://localhost:6379/0

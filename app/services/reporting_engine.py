@@ -110,7 +110,7 @@ def build_report(
         "title": f"RedPulse - Automated Pentest Report - {project_name} / {engagement_name}",
         "project": project_name,
         "engagement": engagement_name,
-        "generated_at": datetime.datetime.utcnow().isoformat() + "Z",
+        "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
         "format": format,
         "classification": "Confidential - Authorized Testing Only",
         "executive_summary": executive,

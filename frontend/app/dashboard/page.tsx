@@ -10,6 +10,7 @@ export default function DashboardPage() {
   const [stats, setStats] = useState({ projects: 0, engagements: 0, reports: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [onboard, setOnboard] = useState<{ percent: number; next?: string } | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -32,6 +33,13 @@ export default function DashboardPage() {
     load();
   }, []);
 
+  useEffect(() => {
+    api.get("/api/v1/onboarding/progress").then((r) => {
+      const d = r.data?.data ?? r.data;
+      setOnboard({ percent: d?.progress?.percent ?? 0, next: d?.next_step?.title });
+    }).catch(() => {});
+  }, []);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -40,14 +48,6 @@ export default function DashboardPage() {
       </div>
     );
   }
-
-  const [onboard, setOnboard] = useState<{ percent: number; next?: string } | null>(null);
-  useEffect(() => {
-    api.get("/api/v1/onboarding/progress").then((r) => {
-      const d = r.data?.data ?? r.data;
-      setOnboard({ percent: d?.progress?.percent ?? 0, next: d?.next_step?.title });
-    }).catch(() => {});
-  }, []);
 
   return (
     <div className="space-y-6">

@@ -41,7 +41,7 @@ def create_github_issue(finding: Dict[str, Any], repo: str = "RedPulse/security-
         "title": f"[RedPulse] {title}",
         "body": body,
         "state": "open",
-        "created_at": datetime.datetime.utcnow().isoformat() + "Z",
+        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
         "mock": True,
     }
 
@@ -61,7 +61,7 @@ def create_jira_ticket(finding: Dict[str, Any], project: str = "SEC") -> Dict[st
         "summary": f"[RedPulse] {title}",
         "description": desc,
         "status": "To Do",
-        "created_at": datetime.datetime.utcnow().isoformat() + "Z",
+        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
         "mock": True,
     }
 

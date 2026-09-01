@@ -121,11 +121,12 @@ class WorkspaceRole(str, Enum):
 
 
 class SubscriptionPlan(str, Enum):
-    """Subscription plan enum."""
+    """Subscription plan enum with centralized pricing and metadata."""
 
     FREE = "free"
-    PRO = "pro"
     BUSINESS = "business"
+    PRO = "pro"
+    TEAM = "team"
     ENTERPRISE = "enterprise"
 
 
@@ -391,11 +392,12 @@ class Workspace(Base):
     created_at = Column(DateTime, nullable=False, default=sa.func.now())
     updated_at = Column(DateTime, nullable=False, default=sa.func.now(), onupdate=sa.func.now())
 
-    # Relationships
+# Relationships
     owner = relationship("User", foreign_keys=[owner_id])
     members = relationship("WorkspaceMember", back_populates="workspace", cascade="all, delete-orphan")
     projects = relationship("Project", back_populates="workspace")
     subscription = relationship("Subscription", back_populates="workspace", uselist=False)
+    idempotency_keys = relationship("IdempotencyKey", back_populates="workspace", cascade="all, delete-orphan")
 
 
 class WorkspaceMember(Base):
@@ -1101,3 +1103,23 @@ class WorkerHealth(Base):
 
     created_at = Column(DateTime, nullable=False, default=sa.func.now())
     updated_at = Column(DateTime, nullable=False, default=sa.func.now(), onupdate=sa.func.now())
+# ----- Idempotency Keys -----
+
+class IdempotencyKey(Base):
+    """Idempotency key for webhook and checkout event deduplication."""
+
+    __tablename__ = "idempotency_keys"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    event_id = Column(String(255), nullable=False, unique=True, index=True)
+    key_hash = Column(String(64), nullable=False, comment="SHA256 hash of event data")
+    workspace_id = Column(String(36), ForeignKey("workspaces.id"), nullable=True)
+    event_type = Column(String(100), nullable=False, default="")
+    processed_at = Column(DateTime, nullable=False, default=sa.func.now())
+
+    created_at = Column(DateTime, nullable=False, default=sa.func.now())
+    updated_at = Column(DateTime, nullable=False, default=sa.func.now(), onupdate=sa.func.now())
+
+    # Relationships
+    workspace = relationship("Workspace", back_populates="idempotency_keys")
+

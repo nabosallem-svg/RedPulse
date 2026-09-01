@@ -40,6 +40,7 @@ class TestWorkspaceModel:
         assert SubscriptionPlan.FREE.value == "free"
         assert SubscriptionPlan.PRO.value == "pro"
         assert SubscriptionPlan.BUSINESS.value == "business"
+        assert SubscriptionPlan.TEAM.value == "team"
         assert SubscriptionPlan.ENTERPRISE.value == "enterprise"
 
     def test_subscription_status_enum(self):
@@ -218,6 +219,7 @@ class TestBillingService:
         assert SubscriptionPlan.FREE in PLAN_LIMITS
         assert SubscriptionPlan.PRO in PLAN_LIMITS
         assert SubscriptionPlan.BUSINESS in PLAN_LIMITS
+        assert SubscriptionPlan.TEAM in PLAN_LIMITS
         assert SubscriptionPlan.ENTERPRISE in PLAN_LIMITS
 
     def test_free_plan_limits(self):
@@ -230,13 +232,19 @@ class TestBillingService:
     def test_pro_plan_limits(self):
         limits = PLAN_LIMITS[SubscriptionPlan.PRO]
         assert limits["max_projects"] == 10
-        assert limits["price_monthly"] == 49
-        assert limits["monthly_credits"] == 2000
+        assert limits["price_monthly"] == 149
+        assert limits["monthly_credits"] == 5000
+
+    def test_team_plan_limits(self):
+        limits = PLAN_LIMITS[SubscriptionPlan.TEAM]
+        assert limits["max_projects"] == 25
+        assert limits["price_monthly"] == 399
+        assert limits["monthly_credits"] == 15000
 
     def test_enterprise_unlimited(self):
         limits = PLAN_LIMITS[SubscriptionPlan.ENTERPRISE]
         assert limits["max_projects"] == -1  # Unlimited
-        assert limits["price_monthly"] == 999
+        assert limits["price_monthly"] == 900
 
     def test_credit_costs_defined(self):
         assert "scan_quick" in CREDIT_COSTS
