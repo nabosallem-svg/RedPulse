@@ -286,8 +286,12 @@ async def mark_false_positive(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    # Refresh finding to return updated status
+    # Re-query finding from DB to ensure status is persisted for downstream consumers
     await db.refresh(finding)
+    find_res = await db.execute(select(Finding).where(Finding.id == finding_id))
+    finding = find_res.scalar_one_or_none()
+    if not finding:
+        raise HTTPException(status_code=404, detail="Finding not found")
 
     # Audit
     try:
