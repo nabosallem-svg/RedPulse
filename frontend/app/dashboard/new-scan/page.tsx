@@ -24,6 +24,8 @@ export default function NewScanPage() {
   const [verifying, setVerifying] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [finding, setFinding] = useState<any>(null);
+  const [elapsed, setElapsed] = useState<number | null>(null);
+  const [findingsCount, setFindingsCount] = useState<number | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -107,10 +109,12 @@ export default function NewScanPage() {
       setError("يجب التحقق أولاً (Pending → Verified)");
       return;
     }
-    setScanning(true); setStatus("scanning"); setError(null);
+    setScanning(true); setStatus("scanning"); setError(null); setElapsed(null); setFindingsCount(null);
+    const t0 = Date.now();
+    const timer = setInterval(() => setElapsed(Math.floor((Date.now() - t0) / 1000)), 1000);
     try {
       const projId = selectedProject;
-      // Use pentest report as scan (real, returns findings)
+      // Use pentest report as scan (real nuclei, no synthetic)
       const res = await api.post(`/api/v1/projects/${projId}/pentest/report`, {
         engagement_id: selectedEngagement,
         targets: [domain.trim()],
@@ -118,14 +122,23 @@ export default function NewScanPage() {
       });
       const report: any = res.data;
       const findings = report?.findings || report?.executive_summary?.enriched || [];
-      const f = findings[0] || { template_id: "info-disclosure", severity: "MEDIUM", host: domain.trim(), title: "Synthetic" };
-      setFinding(f);
-      setStatus("done");
-      setSuccess(`تم الفحص — وُجد ${findings.length || 1} Finding(s)`);
+      setFindingsCount(findings.length);
+      if (findings.length === 0) {
+        setFinding(null);
+        setStatus("done");
+        setSuccess(`تم الفحص — لا توجد ثغرات (0 Findings) — فحص حقيقي استغرق ${Math.floor((Date.now() - t0) / 1000)}s`);
+      } else {
+        const f = findings[0];
+        setFinding(f);
+        setStatus("done");
+        setSuccess(`تم الفحص — وُجد ${findings.length} Finding(s) حقيقية في ${Math.floor((Date.now() - t0) / 1000)}s`);
+      }
     } catch (e: any) {
-      setError(e?.response?.data?.detail || "فشل الفحص");
+      setError(e?.response?.data?.detail || "فشل الفحص — nuclei قد يكون غير متاح أو الهدف خارج النطاق");
       setStatus("verified");
     } finally {
+      clearInterval(timer);
+      setElapsed(Math.floor((Date.now() - t0) / 1000));
       setScanning(false);
     }
   }
@@ -220,22 +233,30 @@ export default function NewScanPage() {
           <CardDescription>بعد Verified → ينادي <code className="bg-[var(--muted)] px-1 rounded">POST /api/v1/projects/{`{id}`}/pentest/report</code> و <code className="bg-[var(--muted)] px-1 rounded">POST /api/v1/recon/jobs</code></CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <Button onClick={handleStartScan} disabled={status !== "verified" || scanning} className="bg-green-600 hover:bg-green-700 disabled:opacity-50">
-            {scanning ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Zap className="h-4 w-4 mr-1" />}
-            Start Scan {status !== "verified" ? "(يحتاج Verified أولاً)" : ""}
+          <Button onClick={handleStartScan} disabled={status !== "verified" || scanning} className="bg-green-600 hover:bg-green-700 disabled:opacity-50 min-w-[180px]">
+            {scanning ? <><Loader2 className="h-4 w-4 animate-spin mr-1" /> جارٍ الفحص... {elapsed !== null ? `${elapsed}s` : ""}</> : <><Zap className="h-4 w-4 mr-1" /> Start Scan {status !== "verified" ? "(يحتاج Verified أولاً)" : ""}</>}
           </Button>
-          {finding && (
+          {status === "scanning" && (
+            <div className="text-xs text-purple-300 flex items-center gap-2"><Loader2 className="h-3 w-3 animate-spin" /> nuclei يفحص {domain} الآن — قد يستغرق 40-60 ثانية لـ 12k قالب...</div>
+          )}
+          {finding ? (
             <div className="rounded border border-green-500/20 bg-green-500/10 p-3 space-y-2">
-              <div className="text-sm font-medium text-green-300 flex items-center gap-2"><CheckCircle2 className="h-4 w-4" /> اكتمل الفحص — Finding حقيقي من الـ API:</div>
-              <div className="flex gap-2 text-xs">
+              <div className="text-sm font-medium text-green-300 flex items-center gap-2"><CheckCircle2 className="h-4 w-4" /> اكتمل الفحص — Finding حقيقي من nuclei:</div>
+              <div className="flex gap-2 text-xs flex-wrap">
                 <span className="px-2 py-1 rounded bg-red-500/20 text-red-200 border border-red-500/30">{finding.severity || "MEDIUM"}</span>
                 <span className="font-mono">{finding.template_id || finding.title || "finding"}</span>
                 <span className="text-[var(--muted-foreground)]">{finding.host || domain}</span>
-                {finding.cvss_score && <span className="ml-auto">CVSS {finding.cvss_score}</span>}
+                {finding.cvss_score && <span className="ml-auto font-mono">CVSS {finding.cvss_score}</span>}
+                {findingsCount !== null && <span className="text-[var(--muted-foreground)]">• {findingsCount} إجمالي</span>}
               </div>
-              <div className="text-xs text-[var(--muted-foreground)]">شاهد التفاصيل في <a href={`/dashboard/engagements/${selectedEngagement}`} className="text-[var(--primary)] underline">Findings</a> و <a href="/dashboard/reports" className="text-[var(--primary)] underline">Reports</a></div>
+              <div className="text-xs text-[var(--muted-foreground)]">شاهد التفاصيل في <a href={`/dashboard/engagements/${selectedEngagement}`} className="text-[var(--primary)] underline">Findings</a> و <a href="/dashboard/reports" className="text-[var(--primary)] underline">Reports</a> {elapsed !== null && `• استغرق ${elapsed}s`}</div>
             </div>
-          )}
+          ) : status === "done" && findingsCount === 0 ? (
+            <div className="rounded border border-blue-500/20 bg-blue-500/10 p-3 space-y-1">
+              <div className="text-sm font-medium text-blue-300 flex items-center gap-2"><CheckCircle2 className="h-4 w-4" /> اكتمل الفحص — لا توجد ثغرات</div>
+              <div className="text-xs text-[var(--muted-foreground)]">فحص حقيقي لـ {domain} عبر nuclei (12k قالب) لم يجد ثغرات — هذا طبيعي لـ testphp.vulnweb.com مع القوالب الحديثة. {elapsed !== null && `• استغرق ${elapsed}s`}</div>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
     </div>

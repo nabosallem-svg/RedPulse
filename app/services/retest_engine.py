@@ -43,11 +43,17 @@ async def _fetch_finding(db: AsyncSession, finding_id: str, current_user: User) 
                 "_orm": row,
             }
     except Exception as e:
-        logger.debug(f"Finding DB fetch fallback (synthetic): {e}")
+        logger.debug(f"Finding DB fetch fallback: {e}")
+        return None
 
-    # Synthetic fallback - assume finding exists for test/demo if id looks plausible
-    # For IDs containing "fixed" or "remediated", simulate already fixed
+    # Synthetic fallback disabled in production — real platform must not invent findings
+    # Allowed only in non-prod for isolated engine tests (retest_engine is deterministic mock)
+    import os as _os
+    if _os.getenv("ENVIRONMENT", "").lower() == "production":
+        return None
+    # Synthetic for test/demo only (non-prod)
     is_fixed_hint = "fixed" in finding_id.lower() or "remediated" in finding_id.lower()
+    logger.warning(f"retest_engine synthetic fallback for {finding_id} (non-prod demo)")
     return {
         "id": finding_id,
         "fingerprint": finding_id,

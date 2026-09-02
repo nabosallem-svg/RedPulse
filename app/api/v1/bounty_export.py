@@ -40,8 +40,7 @@ async def export_bounty(
     if not engagement:
         raise HTTPException(status_code=404, detail="Engagement not found for this project")
 
-    # In production, fetch real Findings for project/engagement; here synthesize demo findings
-    # to ensure frontend always has something to export
+    # Fetch real Findings only — no synthetic fallback (real security platform)
     findings = []
     try:
         from app.db.models import Finding  # type: ignore
@@ -53,11 +52,10 @@ async def export_bounty(
         pass
 
     if not findings:
-        findings = [
-            {"template_id": "xss", "severity": "HIGH", "host": "app.example.com", "evidence": "Reflected XSS in q parameter", "title": "Reflected XSS"},
-            {"template_id": "sqli", "severity": "CRITICAL", "host": "api.example.com", "evidence": "SQLi in id parameter", "title": "SQL Injection"},
-            {"template_id": "idor", "severity": "HIGH", "host": "api.example.com", "evidence": "IDOR on /api/users/{id}", "title": "Insecure Direct Object Reference"},
-        ]
+        # Return empty with clear message — do not invent fake vulnerabilities
+        import logging as _log
+        _log.getLogger("redpulse.bounty").info(f"Bounty export for {project_id}/{engagement_id}: no real findings — returning empty (synthetic disabled)")
+        # Keep findings empty; markdown below will show 0
 
     # Build markdown per platform - RedPulse branded
     lines = []

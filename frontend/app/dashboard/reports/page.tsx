@@ -177,10 +177,10 @@ export default function ReportsPage() {
       ) : (
         <>
           <div className="grid gap-3 md:grid-cols-4">
-            <Button onClick={() => download("pdf")} disabled={!!downloading} className="bg-[var(--primary)]"><Download className="h-4 w-4 mr-1" /> {downloading === "pdf" ? "جارٍ التحميل..." : "تحميل PDF (pentest)"}</Button>
-            <Button onClick={() => download("json")} disabled={!!downloading} variant="outline">{downloading === "json" ? "جارٍ..." : "تحميل JSON"}</Button>
-            <Button onClick={() => download("csv")} disabled={!!downloading} variant="outline">{downloading === "csv" ? "جارٍ..." : "تحميل CSV"}</Button>
-            <Button onClick={() => download("html")} disabled={!!downloading} variant="outline">{downloading === "html" ? "جارٍ..." : "تحميل HTML"}</Button>
+            <Button onClick={() => download("pdf")} disabled={!!downloading || findings.length === 0} title={findings.length === 0 ? "لا توجد نتائج للتحميل" : "تحميل PDF حقيقي"} className="bg-[var(--primary)] disabled:opacity-50"><Download className="h-4 w-4 mr-1" /> {downloading?.startsWith("pdf") ? "جارٍ التحميل..." : "تحميل PDF (حقيقي)"}</Button>
+            <Button onClick={() => download("json")} disabled={!!downloading || findings.length === 0} variant="outline" className="disabled:opacity-50">{downloading === "json" ? "جارٍ..." : "تحميل JSON"}</Button>
+            <Button onClick={() => download("csv")} disabled={!!downloading || findings.length === 0} variant="outline" className="disabled:opacity-50">{downloading === "csv" ? "جارٍ..." : "تحميل CSV"}</Button>
+            <Button onClick={() => download("html")} disabled={!!downloading || findings.length === 0} variant="outline" className="disabled:opacity-50">{downloading === "html" ? "جارٍ..." : "تحميل HTML"}</Button>
           </div>
 
           <Card>
@@ -190,7 +190,11 @@ export default function ReportsPage() {
             </CardHeader>
             <CardContent>
               {findings.length === 0 ? (
-                <p className="text-sm text-[var(--muted-foreground)]">No findings yet. ابدأ فحص من Scans → Start Scan ليتولد تقرير ثم ارجع هنا.</p>
+                <div className="text-center py-8 space-y-2">
+                  <FileText className="h-8 w-8 mx-auto text-[var(--muted-foreground)] opacity-50" />
+                  <p className="text-sm font-medium">لا توجد نتائج بعد</p>
+                  <p className="text-xs text-[var(--muted-foreground)]">ابدأ فحصاً من <span className="font-mono">New Scan → testphp.vulnweb.com</span> — الفحص الحقيقي يستغرق ~45 ثانية ثم يظهر هنا تلقائياً</p>
+                </div>
               ) : (
                 <div className="space-y-2 max-h-[400px] overflow-y-auto">
                   {findings.map((f: any, i: number) => (

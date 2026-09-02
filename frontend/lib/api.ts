@@ -47,16 +47,19 @@ api.interceptors.response.use(
         return Promise.reject(error);
       }
 
-      // Demo mode: if sessionStorage has demo user (id=demo), don't force redirect — let pages handle error UI
-      try {
-        const raw = sessionStorage.getItem("rp_user");
-        if (raw) {
-          const u = JSON.parse(raw);
-          if (u?.id === "demo" || u?.email === "demo@redpulse.io") {
-            return Promise.reject(error);
+      // Demo mode is disabled in production — only allows bypass when NEXT_PUBLIC_ALLOW_DEMO=true (dev only)
+      const allowDemo = process.env.NEXT_PUBLIC_ALLOW_DEMO === "true";
+      if (allowDemo) {
+        try {
+          const raw = sessionStorage.getItem("rp_user");
+          if (raw) {
+            const u = JSON.parse(raw);
+            if (u?.id === "demo" || u?.email === "demo@redpulse.io") {
+              return Promise.reject(error);
+            }
           }
-        }
-      } catch {}
+        } catch {}
+      }
 
       if (isRefreshing) {
         return new Promise<void>((resolve, reject) => {

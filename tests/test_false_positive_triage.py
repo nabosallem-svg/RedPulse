@@ -133,7 +133,8 @@ class TestFalsePositiveService:
 # ---------- API-level tests ----------
 class TestFalsePositiveAPI:
     @pytest.mark.asyncio
-    async def test_mark_false_positive_endpoint_success(self, client, test_session):
+    async def test_mark_false_positive_endpoint_success(self, app, test_session):
+        from httpx import AsyncClient, ASGITransport
         user = await _create_user(test_session, "fp_api1@test.com")
         ws = await _create_workspace(test_session, user)
         proj = await _create_project(test_session, user.id, ws.id)
@@ -141,20 +142,22 @@ class TestFalsePositiveAPI:
         finding = await _create_finding(test_session, eng.id, proj.id, user.id)
         token = _token(user)
 
-        resp = client.post(f"/api/v1/findings/{finding.id}/false-positive", json={"reason": "WAF triggered, not exploitable", "evidence": "https://example.com/?q=123"}, headers={"Authorization": f"Bearer {token}"})
-        assert resp.status_code == 201, resp.text
-        data = resp.json()["data"]
-        assert data["feedback"]["decision"] == "false_positive"
-        assert data["feedback"]["reason"] == "WAF triggered, not exploitable"
-        assert data["finding"]["status"] == "false_positive"
-        assert "ai_prediction" in data["feedback"]
-        # Finding actually updated in DB
-        res = await test_session.execute(select(Finding).where(Finding.id == finding.id))
-        assert res.scalar_one().status == FindingStatus.FALSE_POSITIVE
-        # History contains it
-        hist = client.get(f"/api/v1/findings/{finding.id}/triage/history", headers={"Authorization": f"Bearer {token}"})
-        assert hist.status_code == 200
-        assert len(hist.json()["data"]) == 1
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            resp = await ac.post(f"/api/v1/findings/{finding.id}/false-positive", json={"reason": "WAF triggered, not exploitable", "evidence": "https://example.com/?q=123"}, headers={"Authorization": f"Bearer {token}"})
+            assert resp.status_code == 201, resp.text
+            data = resp.json()["data"]
+            assert data["feedback"]["decision"] == "false_positive"
+            assert data["feedback"]["reason"] == "WAF triggered, not exploitable"
+            assert data["finding"]["status"] == "false_positive"
+            assert "ai_prediction" in data["feedback"]
+            # History contains it (same event loop → shared DB visibility)
+            hist = await ac.get(f"/api/v1/findings/{finding.id}/triage/history", headers={"Authorization": f"Bearer {token}"})
+            assert hist.status_code == 200
+            assert len(hist.json()["data"]) == 1
+        # Finding actually updated in DB — refresh stale instance via same engine (AsyncClient shares event loop)
+        await test_session.refresh(finding)
+        assert finding.status == FindingStatus.FALSE_POSITIVE
 
     @pytest.mark.asyncio
     async def test_false_positive_feeds_ai(self, client, test_session):

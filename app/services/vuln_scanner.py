@@ -12,9 +12,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Dict, Any, Optional
 import logging
 import json
+import os
 import re
 import shutil
 import subprocess
+import time
 
 from app.core.config import settings
 
@@ -195,23 +197,41 @@ class VulnScanner:
         Optionally passes auth headers/cookies for authenticated scanning.
         Returns list of finding dicts.
         """
-        nuclei_bin = shutil.which("nuclei") or getattr(settings, "NUCLEI_BIN", "nuclei")
-        if not nuclei_bin or not shutil.which(nuclei_bin):
-            logger.warning(f"Nuclei binary not found at {nuclei_bin}, skipping scan for {host}")
+        # Resolve binary: NUCLEI_BIN may be full path (Windows) — check file existence before which
+        raw_bin = getattr(settings, "NUCLEI_BIN", None) or "nuclei"
+        nuclei_bin = raw_bin
+        if not os.path.isfile(nuclei_bin):
+            which = shutil.which(nuclei_bin) or shutil.which("nuclei")
+            if which:
+                nuclei_bin = which
+        if not nuclei_bin or (not os.path.isfile(nuclei_bin) and not shutil.which(nuclei_bin)):
+            logger.warning(f"Nuclei binary not found at {raw_bin} (resolved {nuclei_bin}), skipping scan for {host}")
             return []
 
-        cmd = [nuclei_bin, "-host", host, "-silent"]
+        # Normalize target to URL for -u (nuclei v3 uses -u/-target, not -host)
+        target = host.strip()
+        if not target.startswith("http://") and not target.startswith("https://"):
+            target = f"http://{target}"
+
+        cmd = [nuclei_bin, "-u", target, "-silent", "-jsonl", "-nc"]
         if template_path:
-            cmd.extend(["-templates", template_path])
+            cmd.extend(["-t", template_path])
 
         # Authenticated scanning: pass headers and cookies to Nuclei
         if auth_headers:
             for key, value in auth_headers.items():
                 cmd.extend(["-H", f"{key}: {value}"])
         if auth_cookies:
-            cmd.extend(["-cookie", auth_cookies])
+            cmd.extend(["-H", f"Cookie: {auth_cookies}"])
 
-        timeout = getattr(settings, "SCANNER_TIMEOUT", None) or 60
+        timeout = getattr(settings, "SCANNER_TIMEOUT", None) or 300
+        # Clamp timeout to avoid premature kill (nuclei needs ~60s min for 12k templates)
+        if timeout < 60:
+            timeout = 60
+
+        _t0 = time.time()
+        _ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(_t0))
+        logger.info(f"nuclei_start host={host} target={target} cmd={' '.join(cmd)} timeout={timeout}s ts={_ts}")
 
         try:
             result = subprocess.run(
@@ -220,6 +240,11 @@ class VulnScanner:
                 text=True,
                 timeout=timeout,
             )
+            _t1 = time.time()
+            _te = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(_t1))
+            # Log stderr snippet if non-empty (helps diagnose -host error etc.)
+            _stderr_snip = (result.stderr or "")[:300].replace("\n", " ")
+            logger.info(f"nuclei_end host={host} elapsed={_t1 - _t0:.2f}s ts={_te} exit={result.returncode} stdout_lines={len(result.stdout.strip().splitlines()) if result.stdout else 0} stderr_snip={_stderr_snip!r}")
 
             findings: List[Dict[str, Any]] = []
             for line in result.stdout.strip().split("\n"):

@@ -34,7 +34,7 @@ from app.services.monitoring_service import MonitoringService
 async def user(test_session):
     user = User(
         id=str(uuid.uuid4()),
-        email="alert@example.com",
+        email=f"alert_{uuid.uuid4().hex[:8]}@example.com",
         hashed_password="$2b$12$fakehash",
         is_active=True,
     )
@@ -46,7 +46,8 @@ async def user(test_session):
 async def _make_project(test_session, user_id, name="Test Project"):
     project = Project(name=name, owner_id=user_id, description="Test")
     test_session.add(project)
-    await test_session.flush()
+    await test_session.commit()
+    await test_session.refresh(project)
     return project
 
 
@@ -57,7 +58,8 @@ async def _make_engagement(test_session, project_id):
         status=EngagementStatus.AUTHORIZED,
     )
     test_session.add(eng)
-    await test_session.flush()
+    await test_session.commit()
+    await test_session.refresh(eng)
     return eng
 
 
@@ -90,7 +92,8 @@ async def _make_finding(
         poc_curl='curl -v -k "https://example.com/search?q=<script>alert(1)</script>"',
     )
     test_session.add(finding)
-    await test_session.flush()
+    await test_session.commit()
+    await test_session.refresh(finding)
     return finding
 
 
@@ -107,7 +110,8 @@ async def _make_webhook(test_session, project_id, user_id, webhook_type="telegra
         enabled=enabled,
     )
     test_session.add(webhook)
-    await test_session.flush()
+    await test_session.commit()
+    await test_session.refresh(webhook)
     return webhook
 
 
@@ -123,7 +127,8 @@ async def _make_schedule(test_session, project_id, user_id, name="Test Schedule"
         next_scan_at=datetime.now(timezone.utc),
     )
     test_session.add(schedule)
-    await test_session.flush()
+    await test_session.commit()
+    await test_session.refresh(schedule)
     return schedule
 
 
@@ -517,11 +522,11 @@ class TestMonitoringService:
         project = await _make_project(test_session, user.id)
         sched1 = await _make_schedule(test_session, project.id, user.id, enabled=True)
         sched1.next_scan_at = datetime.now(timezone.utc) - timedelta(hours=1)
-        await test_session.flush()
+        await test_session.commit()
 
         sched2 = await _make_schedule(test_session, project.id, user.id, name="Future", enabled=True)
         sched2.next_scan_at = datetime.now(timezone.utc) + timedelta(days=1)
-        await test_session.flush()
+        await test_session.commit()
 
         service = MonitoringService(test_session)
         due = await service.get_due_schedules()
@@ -536,7 +541,7 @@ class TestMonitoringService:
         project = await _make_project(test_session, user.id)
         sched = await _make_schedule(test_session, project.id, user.id, enabled=False)
         sched.next_scan_at = datetime.now(timezone.utc) - timedelta(hours=1)
-        await test_session.flush()
+        await test_session.commit()
 
         service = MonitoringService(test_session)
         due = await service.get_due_schedules()
@@ -549,7 +554,7 @@ class TestMonitoringService:
         project = await _make_project(test_session, user.id)
         sched = await _make_schedule(test_session, project.id, user.id)
         sched.next_scan_at = datetime.now(timezone.utc) - timedelta(hours=1)
-        await test_session.flush()
+        await test_session.commit()
 
         service = MonitoringService(test_session)
         result = await service.execute_monitoring_cycle(sched)
@@ -566,7 +571,7 @@ class TestMonitoringService:
         project = await _make_project(test_session, user.id)
         sched = await _make_schedule(test_session, project.id, user.id)
         sched.next_scan_at = datetime.now(timezone.utc) - timedelta(hours=1)
-        await test_session.flush()
+        await test_session.commit()
 
         service = MonitoringService(test_session)
 
@@ -600,7 +605,7 @@ class TestMonitoringService:
         project = await _make_project(test_session, user.id)
         sched = await _make_schedule(test_session, project.id, user.id)
         sched.last_scan_at = datetime.now(timezone.utc) - timedelta(days=1)
-        await test_session.flush()
+        await test_session.commit()
 
         eng = await _make_engagement(test_session, project.id)
         asset = Asset(
@@ -611,7 +616,7 @@ class TestMonitoringService:
             first_seen=datetime.now(timezone.utc),
         )
         test_session.add(asset)
-        await test_session.flush()
+        await test_session.commit()
 
         service = MonitoringService(test_session)
         changes = await service.detect_changes(project.id)
@@ -626,7 +631,7 @@ class TestMonitoringService:
         project = await _make_project(test_session, user.id)
         sched = await _make_schedule(test_session, project.id, user.id)
         sched.last_scan_at = datetime.now(timezone.utc) - timedelta(days=1)
-        await test_session.flush()
+        await test_session.commit()
 
         eng = await _make_engagement(test_session, project.id)
         finding = await _make_finding(
@@ -647,7 +652,7 @@ class TestMonitoringService:
         project = await _make_project(test_session, user.id)
         sched = await _make_schedule(test_session, project.id, user.id)
         sched.last_scan_at = datetime.now(timezone.utc) - timedelta(days=1)
-        await test_session.flush()
+        await test_session.commit()
 
         eng = await _make_engagement(test_session, project.id)
         finding = await _make_finding(
@@ -657,7 +662,7 @@ class TestMonitoringService:
             fingerprint="fp_regress_001",
         )
         finding.updated_at = datetime.now(timezone.utc)
-        await test_session.flush()
+        await test_session.commit()
 
         service = MonitoringService(test_session)
         changes = await service.detect_changes(project.id)
@@ -685,7 +690,7 @@ class TestWebhookConfigModel:
             enabled=True,
         )
         test_session.add(webhook)
-        await test_session.flush()
+        await test_session.commit()
         await test_session.refresh(webhook)
 
         assert webhook.id is not None
@@ -707,7 +712,7 @@ class TestWebhookConfigModel:
             headers={"Authorization": "Bearer test-token", "X-Custom": "value"},
         )
         test_session.add(webhook)
-        await test_session.flush()
+        await test_session.commit()
         await test_session.refresh(webhook)
 
         assert webhook.headers["Authorization"] == "Bearer test-token"
@@ -731,7 +736,7 @@ class TestMonitoringScheduleModel:
             next_scan_at=datetime.now(timezone.utc) + timedelta(days=7),
         )
         test_session.add(schedule)
-        await test_session.flush()
+        await test_session.commit()
         await test_session.refresh(schedule)
 
         assert schedule.id is not None
@@ -751,7 +756,7 @@ class TestMonitoringScheduleModel:
             profile="standard",
         )
         test_session.add(schedule)
-        await test_session.flush()
+        await test_session.commit()
         await test_session.refresh(schedule)
 
         assert schedule.enabled is True
@@ -882,7 +887,7 @@ class TestWebhookAPI:
         project = await _make_project(test_session, user.id)
         schedule = await _make_schedule(test_session, project.id, user.id)
         schedule.next_scan_at = datetime.now(timezone.utc) - timedelta(hours=1)
-        await test_session.flush()
+        await test_session.commit()
 
         from app.api.deps import get_current_user
         client.app.dependency_overrides[get_current_user] = lambda: user
@@ -1212,7 +1217,7 @@ class TestMonitoringAlertIntegration:
         project = await _make_project(test_session, user.id)
         sched = await _make_schedule(test_session, project.id, user.id)
         sched.next_scan_at = datetime.now(timezone.utc) - timedelta(hours=1)
-        await test_session.flush()
+        await test_session.commit()
 
         service = MonitoringService(test_session)
 

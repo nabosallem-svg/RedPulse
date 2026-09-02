@@ -68,20 +68,20 @@ export default function LoginPage() {
               <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-[var(--border)]" /></div>
               <div className="relative flex justify-center text-xs"><span className="bg-[var(--card)] px-2 text-[var(--muted-foreground)]">أو</span></div>
             </div>
-            <Button type="button" variant="outline" className="w-full border-[var(--primary)]/30 hover:bg-[var(--primary)]/10" onClick={async () => {
-              setError(null);
-              try {
-                await api.post("/api/v1/auth/login", { email: "demo@redpulse.io", password: "Demo12345!" });
-                let user = null;
-                try { const me = await api.get("/api/v1/auth/me"); user = me.data; } catch {}
-                setAuthToken(undefined, undefined, user ?? { email: "demo@redpulse.io" });
-                router.push("/dashboard");
-              } catch {
-                // Fallback to local demo (no backend)
-                setAuthToken(undefined, undefined, { email: "demo@redpulse.io", id: "demo" });
-                router.push("/dashboard");
-              }
-            }}>دخول تجريبي — Demo (بيانات حقيقية)</Button>
+            {process.env.NEXT_PUBLIC_ALLOW_DEMO === "true" && (
+              <Button type="button" variant="outline" className="w-full border-[var(--primary)]/30 hover:bg-[var(--primary)]/10" onClick={async () => {
+                setError(null);
+                try {
+                  await api.post("/api/v1/auth/login", { email: "demo@redpulse.io", password: "Demo12345!" });
+                  let user = null;
+                  try { const me = await api.get("/api/v1/auth/me"); user = me.data; } catch {}
+                  setAuthToken(undefined, undefined, user ?? { email: "demo@redpulse.io" });
+                  router.push("/dashboard");
+                } catch (e: any) {
+                  setError(e?.response?.data?.detail || "Demo account not seeded — create an account first");
+                }
+              }}>دخول تجريبي — Demo (بيئة تطوير فقط)</Button>
+            )}
             <p className="text-center text-sm text-[var(--muted-foreground)]">No account? <Link href="/signup" className="text-[var(--primary)] hover:underline">Create one</Link></p>
           </form>
         </CardContent>

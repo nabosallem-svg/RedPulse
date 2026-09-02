@@ -330,7 +330,8 @@ class TestRetestService:
 class TestRetestAPI:
 
     @pytest.mark.asyncio
-    async def test_retest_api_flows(self, client, test_session):
+    async def test_retest_api_flows(self, app, test_session):
+        from httpx import AsyncClient, ASGITransport
         user = await _create_user(test_session, "retest_api1@test.com")
         ws = await _create_workspace(test_session, user)
         proj = await _create_project(test_session, user.id, ws.id)
@@ -338,46 +339,47 @@ class TestRetestAPI:
         f1 = await _create_finding(test_session, eng.id, proj.id, user.id, title="API Vuln")
         token = _token(user)
 
-        # New tracked retest
-        resp = client.post(f"/api/v1/findings/{f1.id}/retest", headers={"Authorization": f"Bearer {token}"})
-        assert resp.status_code == 200, resp.text
-        data = resp.json()["data"]
-        assert data["finding_id"] == f1.id
-        assert data["status"] == "completed"
-        assert data["result"] == "fixed"
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            # New tracked retest
+            resp = await ac.post(f"/api/v1/findings/{f1.id}/retest", headers={"Authorization": f"Bearer {token}"})
+            assert resp.status_code == 200, resp.text
+            data = resp.json()["data"]
+            assert data["finding_id"] == f1.id
+            assert data["status"] == "completed"
+            assert data["result"] == "fixed"
 
-        # Verify finding is now resolved via retest
-        resp_f = await test_session.execute(select(Finding).where(Finding.id == f1.id))
-        assert resp_f.scalar_one().status == FindingStatus.RESOLVED
+            # Batch retest
+            f2 = await _create_finding(test_session, eng.id, proj.id, user.id, title="F2 batch")
+            f3 = await _create_finding(test_session, eng.id, proj.id, user.id, title="F3 batch")
+            resp2 = await ac.post("/api/v1/findings/batch-retest", json={"finding_ids": [f2.id, f3.id]}, headers={"Authorization": f"Bearer {token}"})
+            assert resp2.status_code == 200
+            assert resp2.json()["meta"]["total"] == 2
 
-        # Batch retest
-        f2 = await _create_finding(test_session, eng.id, proj.id, user.id, title="F2 batch")
-        f3 = await _create_finding(test_session, eng.id, proj.id, user.id, title="F3 batch")
-        resp2 = client.post("/api/v1/findings/batch-retest", json={"finding_ids": [f2.id, f3.id]}, headers={"Authorization": f"Bearer {token}"})
-        assert resp2.status_code == 200
-        assert resp2.json()["meta"]["total"] == 2
+            # List via top-level
+            resp3 = await ac.get("/api/v1/retests", headers={"Authorization": f"Bearer {token}"}, params={"project_id": proj.id})
+            assert resp3.status_code == 200
+            assert resp3.json()["meta"]["total"] >= 3
 
-        # List via top-level
-        resp3 = client.get("/api/v1/retests", headers={"Authorization": f"Bearer {token}"}, params={"project_id": proj.id})
-        assert resp3.status_code == 200
-        assert resp3.json()["meta"]["total"] >= 3
+            # Get single
+            retest_id = data["id"]
+            resp4 = await ac.get(f"/api/v1/retests/{retest_id}", headers={"Authorization": f"Bearer {token}"})
+            assert resp4.status_code == 200
+            assert resp4.json()["data"]["id"] == retest_id
 
-        # Get single
-        retest_id = data["id"]
-        resp4 = client.get(f"/api/v1/retests/{retest_id}", headers={"Authorization": f"Bearer {token}"})
-        assert resp4.status_code == 200
-        assert resp4.json()["data"]["id"] == retest_id
+            # Stats
+            resp5 = await ac.get("/api/v1/retests/stats/summary", headers={"Authorization": f"Bearer {token}"}, params={"project_id": proj.id})
+            assert resp5.status_code == 200
+            assert resp5.json()["data"]["total"] >= 3
 
-        # Stats
-        resp5 = client.get("/api/v1/retests/stats/summary", headers={"Authorization": f"Bearer {token}"}, params={"project_id": proj.id})
-        assert resp5.status_code == 200
-        assert resp5.json()["data"]["total"] >= 3
-
-        # Legacy verify-fix still works
-        f4 = await _create_finding(test_session, eng.id, proj.id, user.id, title="legacy fixed test")
-        resp6 = client.post(f"/api/v1/findings/{f4.id}/verify-fix", headers={"Authorization": f"Bearer {token}"})
-        assert resp6.status_code == 200
-        assert resp6.json()["data"]["new_status"] == "RESOLVED"
+            # Legacy verify-fix still works
+            f4 = await _create_finding(test_session, eng.id, proj.id, user.id, title="legacy fixed test")
+            resp6 = await ac.post(f"/api/v1/findings/{f4.id}/verify-fix", headers={"Authorization": f"Bearer {token}"})
+            assert resp6.status_code == 200
+            assert resp6.json()["data"]["new_status"] == "RESOLVED"
+        # Verify finding is now resolved via retest — refresh stale instance via same engine (AsyncClient shares event loop)
+        await test_session.refresh(f1)
+        assert f1.status == FindingStatus.RESOLVED
 
     @pytest.mark.asyncio
     async def test_retest_isolation(self, client, test_session):
