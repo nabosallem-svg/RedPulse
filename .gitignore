@@ -2,6 +2,8 @@
 *.pyc
 *.pyo
 .env
+.env.production
+.env.local
 .pytest_cache/
 .venv/
 venv/
@@ -17,3 +19,6 @@ demo.db
 *.db
 openapi.json
 backups/
+
+.vercel
+.env*
