@@ -21,10 +21,21 @@ function processQueue(error: unknown) {
   failedQueue = [];
 }
 
-// No localStorage read — auth is entirely httpOnly cookies (defense-in-depth against XSS)
-// The browser automatically sends cookies due to withCredentials:true; we never read tokens in JS.
+// Auth via httpOnly cookies (primary) + Authorization header fallback for cross-site (frontend at redpulse-frontend, API at red-pulse-nine)
+let cachedToken: string | null = null;
+if (typeof window !== "undefined") {
+  try { cachedToken = sessionStorage.getItem("rp_access_token"); } catch {}
+}
 api.interceptors.request.use((config) => {
-  // No Authorization header from localStorage — rely solely on cookies
+  // Send Authorization header if we have a token (cross-site fallback when cookies blocked)
+  // Read from memory or sessionStorage (for page reload)
+  let tok = cachedToken;
+  if (!tok && typeof window !== "undefined") {
+    try { tok = sessionStorage.getItem("rp_access_token"); if (tok) cachedToken = tok; } catch {}
+  }
+  if (tok && config.headers) {
+    (config.headers as any)["Authorization"] = `Bearer ${tok}`;
+  }
   return config;
 });
 
@@ -99,9 +110,14 @@ export default api;
 
 // Auth helpers — no localStorage for tokens (httpOnly cookies only)
 // These are kept for UI state (e.g., post-login redirect) but never store tokens.
-export function setAuthToken(_accessToken?: string, _refreshToken?: string, _user?: unknown) {
-  // Intentionally no localStorage write for tokens — cookies are set by backend via Set-Cookie
-  // Keep user in memory only if needed; not persisted to localStorage to avoid XSS replay
+export function setAuthToken(accessToken?: string, refreshToken?: string, _user?: unknown) {
+  if (accessToken) {
+    cachedToken = accessToken;
+    try { sessionStorage.setItem("rp_access_token", accessToken); } catch {}
+  }
+  if (refreshToken) {
+    try { sessionStorage.setItem("rp_refresh_token", refreshToken); } catch {}
+  }
   if (typeof window !== "undefined" && _user) {
     try {
       sessionStorage.setItem("rp_user", JSON.stringify(_user));
@@ -110,9 +126,12 @@ export function setAuthToken(_accessToken?: string, _refreshToken?: string, _use
 }
 
 export function clearAuth() {
+  cachedToken = null;
   if (typeof window !== "undefined") {
     try {
       sessionStorage.removeItem("rp_user");
+      sessionStorage.removeItem("rp_access_token");
+      sessionStorage.removeItem("rp_refresh_token");
     } catch {}
   }
   // Also call backend logout to clear httpOnly cookies
@@ -122,7 +141,10 @@ export function clearAuth() {
 }
 
 export function getAuthToken(): string | null {
-  // Tokens are httpOnly — not readable via JS by design
+  if (cachedToken) return cachedToken;
+  if (typeof window !== "undefined") {
+    try { return sessionStorage.getItem("rp_access_token"); } catch { return null; }
+  }
   return null;
 }
 
