@@ -21,21 +21,9 @@ function processQueue(error: unknown) {
   failedQueue = [];
 }
 
-// Auth via httpOnly cookies (primary) + Authorization header fallback for cross-site (frontend at redpulse-frontend, API at red-pulse-nine)
-let cachedToken: string | null = null;
-if (typeof window !== "undefined") {
-  try { cachedToken = sessionStorage.getItem("rp_access_token"); } catch {}
-}
+// Auth entirely via httpOnly cookies (monorepo same-origin: frontend+API on https://red-pulse-nine.vercel.app)
+// No Authorization header, no token in storage — defense-in-depth against XSS (C-01)
 api.interceptors.request.use((config) => {
-  // Send Authorization header if we have a token (cross-site fallback when cookies blocked)
-  // Read from memory or sessionStorage (for page reload)
-  let tok = cachedToken;
-  if (!tok && typeof window !== "undefined") {
-    try { tok = sessionStorage.getItem("rp_access_token"); if (tok) cachedToken = tok; } catch {}
-  }
-  if (tok && config.headers) {
-    (config.headers as any)["Authorization"] = `Bearer ${tok}`;
-  }
   return config;
 });
 
@@ -110,14 +98,8 @@ export default api;
 
 // Auth helpers — no localStorage for tokens (httpOnly cookies only)
 // These are kept for UI state (e.g., post-login redirect) but never store tokens.
-export function setAuthToken(accessToken?: string, refreshToken?: string, _user?: unknown) {
-  if (accessToken) {
-    cachedToken = accessToken;
-    try { sessionStorage.setItem("rp_access_token", accessToken); } catch {}
-  }
-  if (refreshToken) {
-    try { sessionStorage.setItem("rp_refresh_token", refreshToken); } catch {}
-  }
+export function setAuthToken(_accessToken?: string, _refreshToken?: string, _user?: unknown) {
+  // Tokens are httpOnly cookies set by backend — never store in JS storage (XSS C-01)
   if (typeof window !== "undefined" && _user) {
     try {
       sessionStorage.setItem("rp_user", JSON.stringify(_user));
@@ -126,12 +108,9 @@ export function setAuthToken(accessToken?: string, refreshToken?: string, _user?
 }
 
 export function clearAuth() {
-  cachedToken = null;
   if (typeof window !== "undefined") {
     try {
       sessionStorage.removeItem("rp_user");
-      sessionStorage.removeItem("rp_access_token");
-      sessionStorage.removeItem("rp_refresh_token");
     } catch {}
   }
   // Also call backend logout to clear httpOnly cookies
@@ -141,10 +120,7 @@ export function clearAuth() {
 }
 
 export function getAuthToken(): string | null {
-  if (cachedToken) return cachedToken;
-  if (typeof window !== "undefined") {
-    try { return sessionStorage.getItem("rp_access_token"); } catch { return null; }
-  }
+  // httpOnly — not readable via JS by design
   return null;
 }
 

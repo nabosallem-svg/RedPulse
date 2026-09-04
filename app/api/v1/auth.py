@@ -87,10 +87,8 @@ async def signup(
     access_token = create_access_token(subject=user.email)
     refresh_token = create_refresh_token(subject=user.email)
 
-    # Fix: Store tokens in httpOnly Secure cookies to mitigate XSS token theft via localStorage
-    # Frontend can still use Bearer header, but cookies provide defense-in-depth.
-    # Cross-site cookies for Vercel (frontend at redpulse-frontend.vercel.app, API at red-pulse-nine.vercel.app)
-    # In production (HTTPS) use SameSite=None + Secure so browser sends cookies cross-site with withCredentials:true
+    # Fix: Store tokens in httpOnly Secure cookies to mitigate XSS token theft via localStorage (C-01)
+    # Monorepo single-origin (frontend+API on same domain) — SameSite=Lax, no Bearer fallback needed
     import os as _os
     _is_prod = _os.getenv("ENVIRONMENT", "").lower() == "production"
     response.set_cookie(
@@ -98,7 +96,7 @@ async def signup(
         value=access_token,
         httponly=True,
         secure=True if _is_prod else False,
-        samesite="none" if _is_prod else "lax",
+        samesite="lax",
         max_age=60 * 30,  # 30 min matches ACCESS_TOKEN_EXPIRE_MINUTES
         path="/",
     )
@@ -107,7 +105,7 @@ async def signup(
         value=refresh_token,
         httponly=True,
         secure=True if _is_prod else False,
-        samesite="none" if _is_prod else "lax",
+        samesite="lax",
         max_age=60 * 60 * 24 * 7,  # 7 days
         path="/api/v1/auth",
     )
@@ -159,7 +157,7 @@ async def login(
         value=access_token,
         httponly=True,
         secure=True if _is_prod2 else False,
-        samesite="none" if _is_prod2 else "lax",
+        samesite="lax",
         max_age=60 * 30,
         path="/",
     )
@@ -168,7 +166,7 @@ async def login(
         value=refresh_token,
         httponly=True,
         secure=True if _is_prod2 else False,
-        samesite="none" if _is_prod2 else "lax",
+        samesite="lax",
         max_age=60 * 60 * 24 * 7,
         path="/api/v1/auth",
     )

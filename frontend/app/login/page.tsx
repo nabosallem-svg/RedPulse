@@ -27,16 +27,13 @@ export default function LoginPage() {
   async function onSubmit(data: Form) {
     setError(null); setLoading(true);
     try {
-      const res = await api.post("/api/v1/auth/login", { email: data.email, password: data.password });
-      const { access_token, refresh_token } = res.data || {};
+      await api.post("/api/v1/auth/login", { email: data.email, password: data.password });
       let user = null;
       try {
-        // Store tokens before me call so Authorization header is sent
-        if (access_token) setAuthToken(access_token, refresh_token, null);
         const me = await api.get("/api/v1/auth/me");
         user = me.data;
       } catch {}
-      setAuthToken(access_token, refresh_token, user ?? { email: data.email });
+      setAuthToken(undefined, undefined, user ?? { email: data.email });
       router.push("/dashboard");
     } catch (e: any) {
       setError(e?.response?.data?.detail || "Login failed. Check credentials.");
@@ -75,12 +72,10 @@ export default function LoginPage() {
             <Button type="button" variant="outline" className="w-full border-[var(--primary)]/30 hover:bg-[var(--primary)]/10" onClick={async () => {
               setError(null);
               try {
-                const r = await api.post("/api/v1/auth/login", { email: "demo@redpulse.io", password: "Demo12345!" });
-                const { access_token, refresh_token } = (r.data as any) || {};
-                if (access_token) setAuthToken(access_token, refresh_token, null);
+                await api.post("/api/v1/auth/login", { email: "demo@redpulse.io", password: "Demo12345!" });
                 let user = null;
                 try { const me = await api.get("/api/v1/auth/me"); user = me.data; } catch {}
-                setAuthToken(access_token, refresh_token, user ?? { email: "demo@redpulse.io" });
+                setAuthToken(undefined, undefined, user ?? { email: "demo@redpulse.io" });
                 router.push("/dashboard");
               } catch (e: any) {
                 setError(e?.response?.data?.detail || "Demo account not seeded — create an account first");
