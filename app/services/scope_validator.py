@@ -56,13 +56,9 @@ async def validate_target(engagement_id: str, host_or_url: str, db: AsyncSession
     Raises:
         ScopeViolation: If any check fails, with descriptive detail message
     """
-    # ---- Security: prevent test bypass in production ----
-    if os.getenv("ENVIRONMENT", "").lower() == "production":
-        raise ScopeViolation(
-            "Test bypass must never run in production. "
-            "Use ENVIRONMENT=test for testing or complete authorization properly."
-        )
-
+    # ---- Security: test bypass is NEVER active in production ----
+    # (Enforced below via _is_test_env gate: production always requires real verified authorization.
+    # No upfront raise here — properly authorized production scans must pass.)
     # ---- 1. Global exclusion check (always first, always wins) ----
     if is_excluded(host_or_url):
         reason = get_exclusion_reason(host_or_url) or "Target is in global exclusion list"
@@ -103,8 +99,9 @@ async def validate_target(engagement_id: str, host_or_url: str, db: AsyncSession
 
     # TEST AUTH BYPASS: In testing environments, skip authorization verification
     # if the engagement has at least one scope rule. This allows E2E tests to run
-    # without DNS TXT verification. Strictly gated by ENVIRONMENT=test or TESTING=1.
-    _is_test_env = os.environ.get("ENVIRONMENT", "").lower() == "test" or os.environ.get("TESTING", "0") == "1"
+    # without DNS TXT verification. Strictly gated by ENVIRONMENT=test or TESTING=1,
+    # and NEVER active when ENVIRONMENT=production (production always requires real verified auth).
+    _is_test_env = (os.environ.get("ENVIRONMENT", "").lower() == "test" or os.environ.get("TESTING", "0") == "1") and os.environ.get("ENVIRONMENT", "").lower() != "production"
 
     result = await db.execute(
         select(Authorization).where(

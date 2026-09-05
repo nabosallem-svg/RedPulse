@@ -312,7 +312,7 @@ class TestAuthBypass:
 
     @pytest.mark.asyncio
     async def test_bypass_not_active_in_production(self, session, user):
-        """When ENVIRONMENT=production, auth check is enforced even with scope rules."""
+        """When ENVIRONMENT=production, auth check is enforced even with scope rules (no bypass)."""
         os.environ["ENVIRONMENT"] = "production"
         os.environ.pop("TESTING", None)
         try:
@@ -321,7 +321,9 @@ class TestAuthBypass:
             await _make_scope_rule(session, engagement.id, "*.example.com")
 
             from app.services.scope_validator import validate_target, ScopeViolation
-            with pytest.raises(ScopeViolation, match="Test bypass must never run in production"):
+            # No bypass in production: missing auth must raise (not silently pass),
+            # while properly authorized targets still pass (no blanket block).
+            with pytest.raises(ScopeViolation, match="No authorization"):
                 await validate_target(engagement.id, "sub.example.com", session, user)
         finally:
             os.environ.pop("ENVIRONMENT", None)
