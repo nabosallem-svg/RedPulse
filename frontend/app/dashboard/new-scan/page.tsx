@@ -112,33 +112,56 @@ export default function NewScanPage() {
     setScanning(true); setStatus("scanning"); setError(null); setElapsed(null); setFindingsCount(null);
     const t0 = Date.now();
     const timer = setInterval(() => setElapsed(Math.floor((Date.now() - t0) / 1000)), 1000);
-    try {
-      const projId = selectedProject;
-      // Use pentest report as scan (real nuclei, no synthetic)
-      const res = await api.post(`/api/v1/projects/${projId}/pentest/report`, {
-        engagement_id: selectedEngagement,
-        targets: [domain.trim()],
-        format: "json",
-      });
-      const report: any = res.data;
-      const findings = report?.findings || report?.executive_summary?.enriched || [];
+    const finish = () => { clearInterval(timer); setElapsed(Math.floor((Date.now() - t0) / 1000)); setScanning(false); };
+    const showFindings = (findings: any[]) => {
       setFindingsCount(findings.length);
       if (findings.length === 0) {
         setFinding(null);
         setStatus("done");
         setSuccess(`تم الفحص — لا توجد ثغرات (0 Findings) — فحص حقيقي استغرق ${Math.floor((Date.now() - t0) / 1000)}s`);
       } else {
-        const f = findings[0];
-        setFinding(f);
+        setFinding(findings[0]);
         setStatus("done");
         setSuccess(`تم الفحص — وُجد ${findings.length} Finding(s) حقيقية في ${Math.floor((Date.now() - t0) / 1000)}s`);
       }
+    };
+    try {
+      const projId = selectedProject;
+      // Pentest runs as a background Celery job (nuclei 45s+) — returns 202 + poll_url
+      const res = await api.post(`/api/v1/projects/${projId}/pentest/report`, {
+        engagement_id: selectedEngagement,
+        targets: [domain.trim()],
+        format: "json",
+      });
+      if (res.status === 202) {
+        const jobId = res.data?.data?.job_id;
+        const pollUrl: string = res.data?.data?.poll_url || `/api/v1/projects/${projId}/pentest/jobs/${jobId}`;
+        setSuccess(`الفحص بدأ في الخلفية (job ${String(jobId).slice(0, 8)}) — جارٍ الفحص...`);
+        // Poll every 3s up to ~10 min
+        for (let i = 0; i < 200; i++) {
+          await new Promise(r => setTimeout(r, 3000));
+          try {
+            const st = await api.get(pollUrl);
+            const js = st.data?.data;
+            if (js?.status === "completed") { showFindings(js.findings || []); finish(); return; }
+            if (js?.status === "failed") { setError(`فشل الفحص: ${js.error || "worker error"}`); setStatus("verified"); finish(); return; }
+          } catch {}
+        }
+        setError("انتهت مهلة انتظار الفحص — تحقق من Reports لاحقاً");
+        setStatus("verified"); finish(); return;
+      }
+      const report: any = res.data;
+      const findings = report?.findings || report?.executive_summary?.enriched || [];
+      showFindings(findings);
+      finish();
     } catch (e: any) {
-      setError(e?.response?.data?.detail || "فشل الفحص — nuclei قد يكون غير متاح أو الهدف خارج النطاق");
+      const detail = e?.response?.data?.detail;
+      const msg = typeof detail === "string" ? detail : "فشل الفحص — nuclei قد يكون غير متاح أو الهدف خارج النطاق";
+      // 503 = queue down → suggest sync fallback only for local/dev
+      setError(msg);
       setStatus("verified");
     } finally {
       clearInterval(timer);
-      setElapsed(Math.floor((Date.now() - t0) / 1000));
       setScanning(false);
     }
   }

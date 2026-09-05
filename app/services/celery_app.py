@@ -56,6 +56,7 @@ celery_app.conf.update(
         "app.services.tasks.run_scan": {"queue": "scans"},
         "app.services.tasks.run_recon": {"queue": "scans"},
         "app.services.tasks.run_pipeline": {"queue": "scans"},
+        "app.services.tasks.run_pentest_report": {"queue": "scans"},
         "app.services.tasks.send_notification": {"queue": "default"},
     },
 

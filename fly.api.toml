@@ -1,0 +1,33 @@
+# RedPulse API on Fly.io — FastAPI (HTTP only, NO long scans here).
+# The pentest endpoint only validates scope (fast) and enqueues to Celery;
+# the worker app (fly.worker.toml) runs nuclei.
+# Deploy: fly deploy -c fly.api.toml
+# Secrets (NEVER commit): fly secrets set -a redpulse-api DATABASE_URL=... REDIS_URL=... JWT_SECRET=...
+
+app = "redpulse-api"
+primary_region = "lhr" # London — next to Supabase eu-west-2, lowest DB latency
+
+[build]
+  dockerfile = "Dockerfile"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 1 # keep 1 warm so login/dashboard never cold-start
+  processes = ["app"]
+
+[env]
+  ENVIRONMENT = "production"
+  LOG_LEVEL = "INFO"
+  LOG_FORMAT = "json"
+  ALLOW_SYNTHETIC_FINDINGS = "0"
+  ENABLE_DEMO_SYNTHETIC = "0"
+  NUCLEI_BIN = "/usr/local/bin/nuclei"
+  BACKEND_CORS_ORIGINS = "[\"https://redpulse-frontend.vercel.app\"]"
+
+# Machine size via CLI after first deploy (FastAPI is light):
+#   fly scale memory 512 -a redpulse-api
+# Free temp subdomain after launch: https://redpulse-api.fly.dev
+# Custom domain later: fly certs add YOUR_DOMAIN -a redpulse-api

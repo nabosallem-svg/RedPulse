@@ -39,11 +39,13 @@ def run_scan(
     template_path: Optional[str] = None,
     auth_headers: Optional[Dict[str, str]] = None,
     auth_cookies: Optional[str] = None,
+    user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Run a Nuclei vulnerability scan as a background task.
 
     Delegates to VulnScanner with proper scope validation.
     Returns scan results including findings count and severity breakdown.
+    user_id is required (worker opens its own DB session and loads the user).
     """
     from app.services.vuln_scanner import VulnScanner
 
@@ -54,14 +56,22 @@ def run_scan(
     start_time = time.time()
 
     async def _execute():
-        scanner = VulnScanner(project_id=project_id, engagement_id=engagement_id)
-        result = await scanner.start_scan_job(
-            targets=targets,
-            template_path=template_path,
-            auth_headers=auth_headers,
-            auth_cookies=auth_cookies,
-        )
-        return result
+        from app.db.session import async_session_factory
+        from app.db.models import User as _User
+        from sqlalchemy import select as _select
+        async with async_session_factory() as _db:
+            _res = await _db.execute(_select(_User).where(_User.id == user_id))
+            _user = _res.scalar_one_or_none()
+            if not _user:
+                raise ValueError(f"User {user_id} not found")
+            scanner = VulnScanner(_db, _user, engagement_id)
+            result = await scanner.start_scan_job(
+                targets=targets,
+                template_path=template_path,
+                auth_headers=auth_headers,
+                auth_cookies=auth_cookies,
+            )
+            return result
 
     try:
         result = _run_async(_execute())
@@ -74,6 +84,74 @@ def run_scan(
     except Exception as exc:
         logger.error("Celery task run_scan failed: project=%s error=%s", project_id, exc)
         raise self.retry(exc=exc, countdown=60)
+
+
+@shared_task(
+    bind=True,
+    name="app.services.tasks.run_pentest_report",
+    max_retries=1,
+    soft_time_limit=600,
+    time_limit=900,
+)
+def run_pentest_report(
+    self,
+    user_id: str,
+    project_id: str,
+    engagement_id: str,
+    targets: list[str],
+    format: str = "json",
+) -> Dict[str, Any]:
+    """Run a controlled pentest scan (nuclei 45s+) as a background task.
+
+    Same logic as the sync endpoint via execute_pentest_scan — scope is
+    re-validated inside the worker. Args are JSON-serializable only
+    (user re-loaded from worker's own DB session).
+    Returns a JSON-serializable summary with the full enriched findings.
+    """
+    from app.services.pentest_service import execute_pentest_scan
+
+    logger.info(
+        "Celery task run_pentest_report started: project=%s engagement=%s targets=%d",
+        project_id, engagement_id, len(targets),
+    )
+    start_time = time.time()
+
+    async def _execute():
+        from sqlalchemy import select as _select
+        from app.db.session import async_session_factory
+        from app.db.models import User as _User
+        async with async_session_factory() as _db:
+            _res = await _db.execute(_select(_User).where(_User.id == user_id))
+            _user = _res.scalar_one_or_none()
+            if not _user:
+                raise ValueError(f"User {user_id} not found")
+            report, enriched = await execute_pentest_scan(
+                _db, _user, project_id, engagement_id, targets, format="json",
+            )
+            return report, enriched
+
+    try:
+        report, enriched = _run_async(_execute())
+        elapsed = time.time() - start_time
+        logger.info(
+            "Celery task run_pentest_report completed: project=%s findings=%d elapsed=%.1fs",
+            project_id, len(enriched), elapsed,
+        )
+        return {
+            "project_id": project_id,
+            "engagement_id": engagement_id,
+            "targets": targets,
+            "findings_count": len(enriched),
+            "elapsed_s": round(elapsed, 1),
+            "executive_summary": report.get("executive_summary", {}),
+            "findings": enriched,
+        }
+    except ValueError:
+        # Missing objects — retrying won't help
+        raise
+    except Exception as exc:
+        logger.error("Celery task run_pentest_report failed: project=%s error=%s", project_id, exc)
+        raise self.retry(exc=exc, countdown=120)
 
 
 @shared_task(
@@ -147,13 +225,33 @@ def run_pipeline(
     start_time = time.time()
 
     async def _execute():
-        orchestrator = PipelineOrchestrator(project_id=project_id)
-        result = await orchestrator.run_pipeline(
-            engagement_id=engagement_id,
-            targets=targets,
-            auth_headers=auth_headers,
-            auth_cookies=auth_cookies,
-        )
+        from app.db.session import async_session_factory
+        from app.db.models import User as _User
+        from sqlalchemy import select as _select
+        async with async_session_factory() as _db:
+            # PipelineOrchestrator requires (db, user); worker loads user by id from its own session.
+            # user_id is passed via targets payload? No — pipeline endpoint must pass it; see run_pentest_report.
+            # Fallback: resolve owner from engagement's project.
+            from app.db.models import Engagement as _Eng, Project as _Proj
+            _eres = await _db.execute(_select(_Eng).where(_Eng.id == engagement_id))
+            _eng = _eres.scalar_one_or_none()
+            if not _eng:
+                raise ValueError(f"Engagement {engagement_id} not found")
+            _pres = await _db.execute(_select(_Proj).where(_Proj.id == _eng.project_id))
+            _proj = _pres.scalar_one_or_none()
+            if not _proj:
+                raise ValueError(f"Project {_eng.project_id} not found")
+            _ures = await _db.execute(_select(_User).where(_User.id == _proj.owner_id))
+            _user = _ures.scalar_one_or_none()
+            if not _user:
+                raise ValueError(f"Owner {_proj.owner_id} not found")
+            orchestrator = PipelineOrchestrator(db=_db, user=_user)
+            result = await orchestrator.run(
+                engagement_id=engagement_id,
+                target=targets[0] if targets else "",
+                auth_headers=auth_headers,
+                auth_cookies=auth_cookies,
+            )
         return {
             "status": result.status,
             "assets_found": result.assets_found,

@@ -1,0 +1,30 @@
+# RedPulse Worker on Fly.io — Celery + nuclei (long scans 45s+ live HERE, never in HTTP).
+# No public ports. Must stay running (a stopped worker never picks jobs from the queue).
+# Deploy: fly deploy -c fly.worker.toml
+# Secrets (NEVER commit): fly secrets set -a redpulse-worker DATABASE_URL=... REDIS_URL=... CELERY_BROKER_URL=... CELERY_RESULT_BACKEND=... JWT_SECRET=...
+
+app = "redpulse-worker"
+primary_region = "lhr" # same region as API + Supabase eu-west-2
+
+[build]
+  dockerfile = "Dockerfile"
+
+[processes]
+  # Queue matches celery_app.py task_routes ("scans"); -c 1 because nuclei scans are heavy
+  worker = "celery -A app.services.celery_app worker -l info -c 1 -Q scans,default --without-heartbeat --without-gossip --without-mingle"
+
+[env]
+  ENVIRONMENT = "production"
+  LOG_LEVEL = "INFO"
+  LOG_FORMAT = "json"
+  ALLOW_SYNTHETIC_FINDINGS = "0"
+  ENABLE_DEMO_SYNTHETIC = "0"
+  NUCLEI_BIN = "/usr/local/bin/nuclei"
+  SCANNER_TIMEOUT = "300"
+  SCANNER_MAX_WORKERS = "4"
+  WORKER_CONCURRENCY = "1"
+
+# After first deploy (nuclei loads 12k templates into RAM — needs 1GB minimum):
+#   fly scale memory 1024 -a redpulse-worker
+#   fly scale count worker=1 -a redpulse-worker   # ensure exactly 1 always-on worker
+# No public URL needed. Check jobs: fly logs -a redpulse-worker
